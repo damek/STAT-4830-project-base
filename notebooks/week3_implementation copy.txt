@@ -1,0 +1,1694 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "8d2a7c53",
+   "metadata": {},
+   "source": [
+    "# Problem Setup\n",
+    "\n",
+    "**Problem Statement:**  \n",
+    "We aim to optimize artificial protein synthesis by predicting masked parts of a DNA sequence using a transformer model. Initially, we provide a partially masked DNA sequence and predict the missing tokens, minimizing the cross-entropy loss between the predicted and true tokens. Later, this approach may be extended to generate sequences based on functional descriptions.\n",
+    "\n",
+    "**Objective:**  \n",
+    "Minimize the loss between the predicted and actual tokens at masked positions while ensuring that generated sequences remain biologically valid."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "65f2e155",
+   "metadata": {},
+   "source": [
+    "## Mathematical Formulation\n",
+    "\n",
+    "For each DNA sequence \\(X\\) with masked positions \\(\\mathcal{M}\\), the model predicts a probability distribution \\(p(x_i\\mid X_{\\setminus \\mathcal{M}})\\) for every \\(i \\in \\mathcal{M}\\). The objective function is defined as:\n",
+    "\n",
+    "\\[\n",
+    "\\mathcal{L} = - \\sum_{i \\in \\mathcal{M}} \\log p(x_i^{\\text{true}}\\mid X_{\\setminus \\mathcal{M}}) \n",
+    "\\]\n",
+    "\n",
+    "subject to constraints ensuring valid base pairs and acceptable sequence lengths."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "c63f2c55",
+   "metadata": {},
+   "source": [
+    "## Data Requirements and Success Metrics\n",
+    "\n",
+    "**Data Requirements:**  \n",
+    "- Synthetic DNA sequences from a small vocabulary: `A`, `C`, `G`, and `T`.\n",
+    "- Randomly mask tokens in each sequence to simulate missing data.\n",
+    "\n",
+    "**Success Metrics:**  \n",
+    "- Achieve >90% prediction accuracy on masked tokens.\n",
+    "- Low validation loss and biologically plausible sequences (with future integration of tools like AlphaFold)."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "c2e253d9",
+   "metadata": {},
+   "source": [
+    "## Implementation Overview\n",
+    "\n",
+    "This notebook includes:\n",
+    "\n",
+    "- Data generation and preprocessing for synthetic DNA sequences.\n",
+    "- A simple transformer model using PyTorch for masked token prediction.\n",
+    "- An objective function (cross-entropy loss) and an optimization loop.\n",
+    "- Basic logging, validation, and resource monitoring.\n",
+    "- Documentation of design decisions, known limitations, and next steps.\n",
+    "\n",
+    "Note: The implementation is kept small-scale so it can run efficiently on a MacBook."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "625e0122",
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 36,
+   "id": "f5bd3b30",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Using device: cpu\n"
+     ]
+    }
+   ],
+   "source": [
+    "# ===============================\n",
+    "# Setup & Imports\n",
+    "# ===============================\n",
+    "\n",
+    "# Required Imports\n",
+    "import torch\n",
+    "import torch.nn as nn\n",
+    "import torch.optim as optim\n",
+    "import random\n",
+    "import numpy as np \n",
+    "from torch.utils.data import Dataset, DataLoader, random_split\n",
+    "import time\n",
+    "import os\n",
+    "import random\n",
+    "from tqdm import tqdm  # for progress bars\n",
+    "\n",
+    "# For resource monitoring \n",
+    "import psutil\n",
+    "\n",
+    "# Set random seeds for reproducibility\n",
+    "random.seed(42)\n",
+    "np.random.seed(42)\n",
+    "torch.manual_seed(42)\n",
+    "\n",
+    "# Check device (GPU if available, else CPU)\n",
+    "device = torch.device(\"cuda\" if torch.cuda.is_available() else \"cpu\")\n",
+    "print(\"Using device:\", device)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 20,
+   "id": "2198c5c4",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Sample original sequence: ['A', 'G', 'T', 'A', 'A', 'C', 'C', 'T', 'T', 'C']\n",
+      "Sample masked sequence: ['A', 'G', 'T', '[MASK]', 'A', '[MASK]', '[MASK]', 'T', 'T', 'C']\n",
+      "Sample labels: [-100, -100, -100, 0, -100, 1, 1, -100, -100, -100]\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Data Generation: Create synthetic DNA sequences and mask tokens\n",
+    "\n",
+    "# Define vocabulary and special token for masking\n",
+    "vocab = ['A', 'C', 'G', 'T']\n",
+    "mask_token = '[MASK]'\n",
+    "vocab.append(mask_token)\n",
+    "vocab_to_idx = {token: idx for idx, token in enumerate(vocab)}\n",
+    "idx_to_vocab = {idx: token for token, idx in vocab_to_idx.items()}\n",
+    "\n",
+    "# Parameters\n",
+    "sequence_length = 10  # Keeping sequences small\n",
+    "num_sequences = 100   # Number of sequences for training\n",
+    "mask_prob = 0.3       # Probability of masking a token\n",
+    "\n",
+    "def generate_sequence(length):\n",
+    "    \"\"\"Generates a random DNA sequence of given length.\"\"\"\n",
+    "    return [random.choice(vocab[:-1]) for _ in range(length)]\n",
+    "\n",
+    "def mask_sequence(seq, mask_prob):\n",
+    "    \"\"\"\n",
+    "    Randomly masks tokens in the sequence with probability mask_prob.\n",
+    "    Returns the masked sequence and labels where non-masked positions are set to -100.\n",
+    "    \"\"\"\n",
+    "    masked_seq = []\n",
+    "    labels = []\n",
+    "    for token in seq:\n",
+    "        if random.random() < mask_prob:\n",
+    "            masked_seq.append(mask_token)\n",
+    "            labels.append(vocab_to_idx[token])  # Store the true token\n",
+    "        else:\n",
+    "            masked_seq.append(token)\n",
+    "            labels.append(-100)  # -100 will be ignored in loss computation\n",
+    "    return masked_seq, labels\n",
+    "\n",
+    "# Generate the dataset\n",
+    "data = []\n",
+    "for _ in range(num_sequences):\n",
+    "    seq = generate_sequence(sequence_length)\n",
+    "    masked_seq, labels = mask_sequence(seq, mask_prob)\n",
+    "    data.append((seq, masked_seq, labels))\n",
+    "\n",
+    "print(\"Sample original sequence:\", data[0][0])\n",
+    "print(\"Sample masked sequence:\", data[0][1])\n",
+    "print(\"Sample labels:\", data[0][2])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 21,
+   "id": "d14f8711",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Define a PyTorch Dataset for the synthetic DNA data\n",
+    "class DNADataset(Dataset):\n",
+    "    def __init__(self, data, vocab_to_idx):\n",
+    "        self.data = data\n",
+    "        self.vocab_to_idx = vocab_to_idx\n",
+    "        \n",
+    "    def __len__(self):\n",
+    "        return len(self.data)\n",
+    "    \n",
+    "    def __getitem__(self, idx):\n",
+    "        original, masked_seq, labels = self.data[idx]\n",
+    "        # Convert tokens to indices\n",
+    "        input_ids = [self.vocab_to_idx[token] for token in masked_seq]\n",
+    "        return torch.tensor(input_ids, dtype=torch.long), torch.tensor(labels, dtype=torch.long)\n",
+    "\n",
+    "# Split data into training and validation sets (80/20 split)\n",
+    "train_size = int(0.8 * len(data))\n",
+    "val_size = len(data) - train_size\n",
+    "train_data = data[:train_size]\n",
+    "val_data = data[train_size:]\n",
+    "\n",
+    "train_dataset = DNADataset(train_data, vocab_to_idx)\n",
+    "val_dataset = DNADataset(val_data, vocab_to_idx)\n",
+    "\n",
+    "train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)\n",
+    "val_loader = DataLoader(val_dataset, batch_size=16)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 24,
+   "id": "2dd13f9d",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "TransformerModel(\n",
+      "  (embedding): Embedding(5, 16)\n",
+      "  (transformer_encoder): TransformerEncoder(\n",
+      "    (layers): ModuleList(\n",
+      "      (0-1): 2 x TransformerEncoderLayer(\n",
+      "        (self_attn): MultiheadAttention(\n",
+      "          (out_proj): NonDynamicallyQuantizableLinear(in_features=16, out_features=16, bias=True)\n",
+      "        )\n",
+      "        (linear1): Linear(in_features=16, out_features=2048, bias=True)\n",
+      "        (dropout): Dropout(p=0.1, inplace=False)\n",
+      "        (linear2): Linear(in_features=2048, out_features=16, bias=True)\n",
+      "        (norm1): LayerNorm((16,), eps=1e-05, elementwise_affine=True)\n",
+      "        (norm2): LayerNorm((16,), eps=1e-05, elementwise_affine=True)\n",
+      "        (dropout1): Dropout(p=0.1, inplace=False)\n",
+      "        (dropout2): Dropout(p=0.1, inplace=False)\n",
+      "      )\n",
+      "    )\n",
+      "  )\n",
+      "  (fc_out): Linear(in_features=16, out_features=5, bias=True)\n",
+      ")\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "/Users/pulkith/Desktop/Development/STAT-4830-scpp/notebooks/venv/lib/python3.11/site-packages/torch/nn/modules/transformer.py:385: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.self_attn.batch_first was not True(use batch_first for better inference performance)\n",
+      "  warnings.warn(\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Define a simple Transformer-based model for masked token prediction\n",
+    "class TransformerModel(nn.Module):\n",
+    "    def __init__(self, vocab_size, embed_dim=16, num_heads=2, num_layers=2, dropout=0.1):\n",
+    "        super(TransformerModel, self).__init__()\n",
+    "        self.embedding = nn.Embedding(vocab_size, embed_dim)\n",
+    "        encoder_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads, dropout=dropout)\n",
+    "        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)\n",
+    "        self.fc_out = nn.Linear(embed_dim, vocab_size)\n",
+    "        \n",
+    "    def forward(self, x):\n",
+    "        \"\"\"\n",
+    "        x: [batch_size, seq_length]\n",
+    "        returns: logits [batch_size, seq_length, vocab_size]\n",
+    "        \"\"\"\n",
+    "        embedded = self.embedding(x)  # [batch_size, seq_length, embed_dim]\n",
+    "        # Transformer expects input shape: [seq_length, batch_size, embed_dim]\n",
+    "        embedded = embedded.transpose(0, 1)\n",
+    "        transformer_out = self.transformer_encoder(embedded)\n",
+    "        transformer_out = transformer_out.transpose(0, 1)\n",
+    "        logits = self.fc_out(transformer_out)\n",
+    "        return logits\n",
+    "\n",
+    "# Initialize the model\n",
+    "vocab_size = len(vocab_to_idx)\n",
+    "model = TransformerModel(vocab_size).to(device)\n",
+    "print(model)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 25,
+   "id": "07f11f88",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Ensure the model is defined before using it in the optimizer\n",
+    "vocab_size = len(vocab_to_idx)\n",
+    "model = TransformerModel(vocab_size).to(device)\n",
+    "\n",
+    "# Define the loss function and optimizer\n",
+    "criterion = nn.CrossEntropyLoss(ignore_index=-100)  # Ignore positions that are not masked\n",
+    "optimizer = optim.Adam(model.parameters(), lr=0.001)\n",
+    "\n",
+    "# Key training parameters\n",
+    "num_epochs = 5  # Small number for demonstration purposes"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 26,
+   "id": "42ac28a8",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 1/5, Loss: 1.6040\n",
+      "Epoch 2/5, Loss: 1.4515\n",
+      "Epoch 3/5, Loss: 1.4331\n",
+      "Epoch 4/5, Loss: 1.4269\n",
+      "Epoch 5/5, Loss: 1.4206\n",
+      "Training Time: 0.23 seconds\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Training Loop with Logging\n",
+    "\n",
+    "start_time = time.time()\n",
+    "for epoch in range(num_epochs):\n",
+    "    model.train()\n",
+    "    running_loss = 0.0\n",
+    "    for inputs, labels in train_loader:\n",
+    "        inputs = inputs.to(device)\n",
+    "        labels = labels.to(device)\n",
+    "        \n",
+    "        optimizer.zero_grad()\n",
+    "        outputs = model(inputs)  # [batch_size, seq_length, vocab_size]\n",
+    "        \n",
+    "        # Reshape outputs and labels for loss computation\n",
+    "        outputs = outputs.view(-1, vocab_size)\n",
+    "        labels = labels.view(-1)\n",
+    "        \n",
+    "        loss = criterion(outputs, labels)\n",
+    "        loss.backward()\n",
+    "        optimizer.step()\n",
+    "        \n",
+    "        running_loss += loss.item()\n",
+    "    \n",
+    "    avg_loss = running_loss / len(train_loader)\n",
+    "    print(f\"Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss:.4f}\")\n",
+    "\n",
+    "end_time = time.time()\n",
+    "print(\"Training Time: {:.2f} seconds\".format(end_time - start_time))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 27,
+   "id": "d9c1f2ed",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Validation Accuracy on masked tokens: 27.42%\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Validation and Test Cases\n",
+    "\n",
+    "model.eval()\n",
+    "total_correct = 0\n",
+    "total_masked = 0\n",
+    "\n",
+    "with torch.no_grad():\n",
+    "    for inputs, labels in val_loader:\n",
+    "        inputs = inputs.to(device)\n",
+    "        labels = labels.to(device)\n",
+    "        outputs = model(inputs)  # [batch_size, seq_length, vocab_size]\n",
+    "        predictions = torch.argmax(outputs, dim=-1)  # [batch_size, seq_length]\n",
+    "        \n",
+    "        # Evaluate only on masked positions (labels != -100)\n",
+    "        mask = labels != -100\n",
+    "        total_masked += mask.sum().item()\n",
+    "        total_correct += ((predictions == labels) * mask).sum().item()\n",
+    "\n",
+    "if total_masked > 0:\n",
+    "    accuracy = total_correct / total_masked * 100\n",
+    "    print(f\"Validation Accuracy on masked tokens: {accuracy:.2f}%\")\n",
+    "else:\n",
+    "    print(\"No masked tokens in validation set.\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 28,
+   "id": "82a6e4d1",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Memory Usage: 309.80 MB\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Basic Resource Monitoring and Performance Measurements\n",
+    "\n",
+    "if 'psutil' in globals():\n",
+    "    process = psutil.Process(os.getpid())\n",
+    "    mem_info = process.memory_info()\n",
+    "    print(\"Memory Usage: {:.2f} MB\".format(mem_info.rss / (1024 * 1024)))\n",
+    "else:\n",
+    "    print(\"psutil not available. Skipping resource monitoring.\")\n",
+    "\n",
+    "# Additional performance measurements can be added as needed."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 32,
+   "id": "a9473599-9bba-4805-ba2c-5e3cd749db1e",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Fetching up to 10000 IDs for search term: 'Homo sapiens[Organism] AND gene'\n",
+      "Fetched 10000 IDs.\n",
+      "Fetching sequences for IDs 0 to 500...\n",
+      "Fetching sequences for IDs 500 to 1000...\n",
+      "Fetching sequences for IDs 1000 to 1500...\n",
+      "Fetching sequences for IDs 1500 to 2000...\n",
+      "Fetching sequences for IDs 2000 to 2500...\n",
+      "Fetching sequences for IDs 2500 to 3000...\n",
+      "Fetching sequences for IDs 3000 to 3500...\n",
+      "Fetching sequences for IDs 3500 to 4000...\n",
+      "Fetching sequences for IDs 4000 to 4500...\n",
+      "Fetching sequences for IDs 4500 to 5000...\n",
+      "Fetching sequences for IDs 5000 to 5500...\n",
+      "Fetching sequences for IDs 5500 to 6000...\n",
+      "Fetching sequences for IDs 6000 to 6500...\n",
+      "Fetching sequences for IDs 6500 to 7000...\n",
+      "Fetching sequences for IDs 7000 to 7500...\n",
+      "Fetching sequences for IDs 7500 to 8000...\n",
+      "Fetching sequences for IDs 8000 to 8500...\n",
+      "Fetching sequences for IDs 8500 to 9000...\n",
+      "Fetching sequences for IDs 9000 to 9500...\n",
+      "Fetching sequences for IDs 9500 to 10000...\n",
+      "Number of sequences fetched: 10000\n",
+      "ID: pdb|9IJ4|C\n",
+      "Sequence: NAGCCAAGTTTCCATGTTGATGGTA\n",
+      "\n",
+      "ID: pdb|9IJ4|B\n",
+      "Sequence: NTACCATCAACATGGAAACTTGGCTN\n",
+      "\n",
+      "ID: pdb|9IJ5|C\n",
+      "Sequence: NAGCCAAGTTTCCATGTTGATGGTA\n",
+      "\n",
+      "ID: pdb|9IJ5|B\n",
+      "Sequence: NTACCATCAACATGGAAACTTGGCTN\n",
+      "\n",
+      "ID: pdb|9IJ3|C\n",
+      "Sequence: NAGCCAAGTTTCCATGTTGATGGTA\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "from Bio import Entrez, SeqIO\n",
+    "import time\n",
+    "\n",
+    "\n",
+    "Entrez.email = \"your_email@example.com\"\n",
+    "\n",
+    "\n",
+    "def fetch_ids(search_term, max_records=10000):\n",
+    "    \"\"\"\n",
+    "    Fetch up to max_records sequence IDs matching the search term.\n",
+    "    \"\"\"\n",
+    "    print(f\"Fetching up to {max_records} IDs for search term: '{search_term}'\")\n",
+    "    search_handle = Entrez.esearch(db=\"nucleotide\", term=search_term, retmax=max_records)\n",
+    "    search_results = Entrez.read(search_handle)\n",
+    "    search_handle.close()\n",
+    "    ids = search_results[\"IdList\"]\n",
+    "    print(f\"Fetched {len(ids)} IDs.\")\n",
+    "    return ids\n",
+    "\n",
+    "def fetch_sequences_in_batches(id_list, batch_size=500, delay=0.5):\n",
+    "    \"\"\"\n",
+    "    Fetch sequences given a list of IDs in smaller batches.\n",
+    "    \"\"\"\n",
+    "    sequences = []\n",
+    "    total_ids = len(id_list)\n",
+    "    for start in range(0, total_ids, batch_size):\n",
+    "        end = min(total_ids, start + batch_size)\n",
+    "        id_batch = id_list[start:end]\n",
+    "        print(f\"Fetching sequences for IDs {start} to {end}...\")\n",
+    "        try:\n",
+    "            fetch_handle = Entrez.efetch(db=\"nucleotide\", id=\",\".join(id_batch),\n",
+    "                                         rettype=\"fasta\", retmode=\"text\")\n",
+    "            records = list(SeqIO.parse(fetch_handle, \"fasta\"))\n",
+    "            fetch_handle.close()\n",
+    "            sequences.extend(records)\n",
+    "        except Exception as e:\n",
+    "            print(f\"Error fetching batch {start}-{end}: {e}\")\n",
+    "        time.sleep(delay)\n",
+    "    return sequences\n",
+    "\n",
+    "# Define your search term \n",
+    "search_term = \"Homo sapiens[Organism] AND gene\"\n",
+    "\n",
+    "# Fetch only the first 10,000 IDs matching the search term\n",
+    "ids = fetch_ids(search_term, max_records=10000)\n",
+    "\n",
+    "# Fetch the sequences corresponding to the retrieved IDs in batches\n",
+    "sequences = fetch_sequences_in_batches(ids, batch_size=500, delay=0.5)\n",
+    "print(f\"Number of sequences fetched: {len(sequences)}\")\n",
+    "\n",
+    "\n",
+    "for record in sequences[:5]:\n",
+    "    print(f\"ID: {record.id}\")\n",
+    "    print(f\"Sequence: {record.seq}\\n\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 42,
+   "id": "5dc02bfb-1f00-4abe-820a-b23fff57d26e",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Processed 851 sequences out of 10000 total fetched sequences.\n",
+      "Training samples: 680, Validation samples: 171\n",
+      "FullTransformerModel(\n",
+      "  (embedding): Embedding(5, 32)\n",
+      "  (transformer_encoder): TransformerEncoder(\n",
+      "    (layers): ModuleList(\n",
+      "      (0-1): 2 x TransformerEncoderLayer(\n",
+      "        (self_attn): MultiheadAttention(\n",
+      "          (out_proj): NonDynamicallyQuantizableLinear(in_features=32, out_features=32, bias=True)\n",
+      "        )\n",
+      "        (linear1): Linear(in_features=32, out_features=2048, bias=True)\n",
+      "        (dropout): Dropout(p=0.02, inplace=False)\n",
+      "        (linear2): Linear(in_features=2048, out_features=32, bias=True)\n",
+      "        (norm1): LayerNorm((32,), eps=1e-05, elementwise_affine=True)\n",
+      "        (norm2): LayerNorm((32,), eps=1e-05, elementwise_affine=True)\n",
+      "        (dropout1): Dropout(p=0.02, inplace=False)\n",
+      "        (dropout2): Dropout(p=0.02, inplace=False)\n",
+      "      )\n",
+      "    )\n",
+      "  )\n",
+      "  (fc_out): Linear(in_features=32, out_features=5, bias=True)\n",
+      ")\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 1/30 - Training Loss: 1.4133\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 1 - Validation Accuracy on Masked Tokens: 23.91%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 2/30 - Training Loss: 1.3888\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 2 - Validation Accuracy on Masked Tokens: 28.36%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 3/30 - Training Loss: 1.3761\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 3 - Validation Accuracy on Masked Tokens: 30.51%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 4/30 - Training Loss: 1.3702\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 4 - Validation Accuracy on Masked Tokens: 29.83%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 5/30 - Training Loss: 1.3678\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 5 - Validation Accuracy on Masked Tokens: 31.16%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 6/30 - Training Loss: 1.3668\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 6 - Validation Accuracy on Masked Tokens: 30.06%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 7/30 - Training Loss: 1.3697\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 7 - Validation Accuracy on Masked Tokens: 28.63%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 8/30 - Training Loss: 1.3674\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 8 - Validation Accuracy on Masked Tokens: 30.88%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 9/30 - Training Loss: 1.3655\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 9 - Validation Accuracy on Masked Tokens: 30.45%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 10/30 - Training Loss: 1.3654\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 10 - Validation Accuracy on Masked Tokens: 30.30%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 11/30 - Training Loss: 1.3656\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 11 - Validation Accuracy on Masked Tokens: 29.85%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 12/30 - Training Loss: 1.3651\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 12 - Validation Accuracy on Masked Tokens: 30.30%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 13/30 - Training Loss: 1.3626\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 13 - Validation Accuracy on Masked Tokens: 29.83%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 14/30 - Training Loss: 1.3640\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 14 - Validation Accuracy on Masked Tokens: 30.84%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 15/30 - Training Loss: 1.3649\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 15 - Validation Accuracy on Masked Tokens: 29.79%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 16/30 - Training Loss: 1.3635\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 16 - Validation Accuracy on Masked Tokens: 30.65%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 17/30 - Training Loss: 1.3623\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 17 - Validation Accuracy on Masked Tokens: 29.14%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 18/30 - Training Loss: 1.3641\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 18 - Validation Accuracy on Masked Tokens: 30.75%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 19/30 - Training Loss: 1.3607\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 19 - Validation Accuracy on Masked Tokens: 29.90%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 20/30 - Training Loss: 1.3607\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 20 - Validation Accuracy on Masked Tokens: 30.69%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 21/30 - Training Loss: 1.3608\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 21 - Validation Accuracy on Masked Tokens: 30.51%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 22/30 - Training Loss: 1.3629\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 22 - Validation Accuracy on Masked Tokens: 30.35%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 23/30 - Training Loss: 1.3608\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 23 - Validation Accuracy on Masked Tokens: 30.71%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 24/30 - Training Loss: 1.3620\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 24 - Validation Accuracy on Masked Tokens: 30.34%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 25/30 - Training Loss: 1.3620\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 25 - Validation Accuracy on Masked Tokens: 30.22%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 26/30 - Training Loss: 1.3614\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 26 - Validation Accuracy on Masked Tokens: 30.28%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 27/30 - Training Loss: 1.3608\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 27 - Validation Accuracy on Masked Tokens: 29.88%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 28/30 - Training Loss: 1.3617\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 28 - Validation Accuracy on Masked Tokens: 30.10%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 29/30 - Training Loss: 1.3623\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 29 - Validation Accuracy on Masked Tokens: 30.79%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 30/30 - Training Loss: 1.3600\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "                                                                                                                             "
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 30 - Validation Accuracy on Masked Tokens: 29.36%\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": []
+    }
+   ],
+   "source": [
+    "\n",
+    "\n",
+    "# ===============================\n",
+    "# Define Vocabulary and Parameters\n",
+    "# ===============================\n",
+    "# Our DNA vocabulary and a special [MASK] token\n",
+    "vocab = ['A', 'C', 'G', 'T']\n",
+    "mask_token = '[MASK]'\n",
+    "vocab.append(mask_token)\n",
+    "vocab_to_idx = {token: idx for idx, token in enumerate(vocab)}\n",
+    "idx_to_vocab = {idx: token for token, idx in vocab_to_idx.items()}\n",
+    "\n",
+    "# Fixed sequence segment length \n",
+    "max_seq_len = 100\n",
+    "mask_prob = 0.3 # probability to mask a token\n",
+    "\n",
+    "# ===============================\n",
+    "# Data Processing: Blacking Out Tokens in Real Data\n",
+    "# ===============================\n",
+    "def process_sequence(seq_record, max_seq_len, mask_prob):\n",
+    "    \"\"\"\n",
+    "    Process a Biopython SeqRecord:\n",
+    "      - Convert the sequence to uppercase string.\n",
+    "      - If the sequence is at least max_seq_len long, randomly extract a contiguous segment.\n",
+    "      - For each character in the segment, with probability mask_prob, replace it with the [MASK] token.\n",
+    "      - Create a labels list: the true token index if masked, or -100 if not (to ignore in loss).\n",
+    "    Returns:\n",
+    "      (original_tokens, masked_tokens, labels)\n",
+    "    If the sequence is too short, returns None.\n",
+    "    \"\"\"\n",
+    "    seq_str = str(seq_record.seq).upper()\n",
+    "    if len(seq_str) < max_seq_len:\n",
+    "        return None\n",
+    "    # Randomly choose a contiguous segment of length max_seq_len\n",
+    "    start_index = random.randint(0, len(seq_str) - max_seq_len)\n",
+    "    segment = seq_str[start_index : start_index + max_seq_len]\n",
+    "    tokens = list(segment)\n",
+    "    masked_tokens = []\n",
+    "    labels = []\n",
+    "    for token in tokens:\n",
+    "        # If token not in our allowed vocabulary, leave it unchanged and do not predict it.\n",
+    "        if token not in vocab_to_idx:\n",
+    "            masked_tokens.append(token)\n",
+    "            labels.append(-100)\n",
+    "        else:\n",
+    "            if random.random() < mask_prob:\n",
+    "                masked_tokens.append(mask_token)\n",
+    "                labels.append(vocab_to_idx[token])\n",
+    "            else:\n",
+    "                masked_tokens.append(token)\n",
+    "                labels.append(-100)\n",
+    "    return tokens, masked_tokens, labels\n",
+    "\n",
+    "# Process all sequences (fetched from NCBI) and filter out any that are too short\n",
+    "processed_data = []\n",
+    "for record in sequences:\n",
+    "    result = process_sequence(record, max_seq_len, mask_prob)\n",
+    "    if result is not None:\n",
+    "        processed_data.append(result)\n",
+    "\n",
+    "print(f\"Processed {len(processed_data)} sequences out of {len(sequences)} total fetched sequences.\")\n",
+    "\n",
+    "# ===============================\n",
+    "# Create a PyTorch Dataset\n",
+    "# ===============================\n",
+    "class RealDNADataset(Dataset):\n",
+    "    def __init__(self, processed_data, vocab_to_idx):\n",
+    "        self.data = processed_data\n",
+    "        self.vocab_to_idx = vocab_to_idx\n",
+    "        \n",
+    "    def __len__(self):\n",
+    "        return len(self.data)\n",
+    "    \n",
+    "    def __getitem__(self, idx):\n",
+    "        original, masked_seq, labels = self.data[idx]\n",
+    "        # Convert the masked tokens to indices; all tokens should be in our vocab.\n",
+    "        input_ids = [self.vocab_to_idx[token] if token in self.vocab_to_idx else 0 for token in masked_seq]\n",
+    "        return torch.tensor(input_ids, dtype=torch.long), torch.tensor(labels, dtype=torch.long)\n",
+    "\n",
+    "dataset = RealDNADataset(processed_data, vocab_to_idx)\n",
+    "\n",
+    "# Split dataset: 80% training, 20% validation\n",
+    "train_size = int(0.8 * len(dataset))\n",
+    "val_size = len(dataset) - train_size\n",
+    "train_dataset, val_dataset = random_split(dataset, [train_size, val_size])\n",
+    "print(f\"Training samples: {len(train_dataset)}, Validation samples: {len(val_dataset)}\")\n",
+    "\n",
+    "batch_size = 32\n",
+    "train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)\n",
+    "val_loader = DataLoader(val_dataset, batch_size=batch_size)\n",
+    "\n",
+    "# ===============================\n",
+    "# Define (another) Transformer Model\n",
+    "# ===============================\n",
+    "class FullTransformerModel(nn.Module):\n",
+    "    def __init__(self, vocab_size, embed_dim=32, num_heads=4, num_layers=2, dropout=0.02):\n",
+    "        super(FullTransformerModel, self).__init__()\n",
+    "        self.embedding = nn.Embedding(vocab_size, embed_dim)\n",
+    "        encoder_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads, dropout=dropout)\n",
+    "        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)\n",
+    "        self.fc_out = nn.Linear(embed_dim, vocab_size)\n",
+    "        \n",
+    "    def forward(self, x):\n",
+    "        # x: [batch_size, seq_length]\n",
+    "        embedded = self.embedding(x)  # [batch_size, seq_length, embed_dim]\n",
+    "        # Transformer expects shape: [seq_length, batch_size, embed_dim]\n",
+    "        embedded = embedded.transpose(0, 1)\n",
+    "        transformer_out = self.transformer_encoder(embedded)\n",
+    "        transformer_out = transformer_out.transpose(0, 1)  # [batch_size, seq_length, embed_dim]\n",
+    "        logits = self.fc_out(transformer_out)  # [batch_size, seq_length, vocab_size]\n",
+    "        return logits\n",
+    "\n",
+    "vocab_size = len(vocab_to_idx)\n",
+    "model = FullTransformerModel(vocab_size).to(device)\n",
+    "print(model)\n",
+    "\n",
+    "# ===============================\n",
+    "# Setup Loss Function and Optimizer\n",
+    "# ===============================\n",
+    "criterion = nn.CrossEntropyLoss(ignore_index=-100)  # Ignore positions not masked\n",
+    "optimizer = optim.Adam(model.parameters(), lr=0.001)\n",
+    "num_epochs = 30\n",
+    "\n",
+    "# ===============================\n",
+    "# Training Loop with Progress Bar\n",
+    "# ===============================\n",
+    "for epoch in range(num_epochs):\n",
+    "    model.train()\n",
+    "    running_loss = 0.0\n",
+    "    train_batches = 0\n",
+    "    train_pbar = tqdm(train_loader, desc=f\"Epoch {epoch+1}/{num_epochs} Training\", leave=False)\n",
+    "    for inputs, labels in train_pbar:\n",
+    "        inputs = inputs.to(device)\n",
+    "        labels = labels.to(device)\n",
+    "        \n",
+    "        optimizer.zero_grad()\n",
+    "        outputs = model(inputs)  # [batch_size, seq_length, vocab_size]\n",
+    "        # Flatten outputs and labels for loss computation\n",
+    "        outputs = outputs.view(-1, vocab_size)\n",
+    "        labels = labels.view(-1)\n",
+    "        loss = criterion(outputs, labels)\n",
+    "        loss.backward()\n",
+    "        optimizer.step()\n",
+    "        \n",
+    "        running_loss += loss.item()\n",
+    "        train_batches += 1\n",
+    "        train_pbar.set_postfix(loss=running_loss/train_batches)\n",
+    "    avg_loss = running_loss / train_batches\n",
+    "    print(f\"Epoch {epoch+1}/{num_epochs} - Training Loss: {avg_loss:.4f}\")\n",
+    "    \n",
+    "    # ===============================\n",
+    "    # Validation Loop with Progress Bar\n",
+    "    # ===============================\n",
+    "    model.eval()\n",
+    "    total_correct = 0\n",
+    "    total_masked = 0\n",
+    "    with torch.no_grad():\n",
+    "        val_pbar = tqdm(val_loader, desc=\"Validation\", leave=False)\n",
+    "        for inputs, labels in val_pbar:\n",
+    "            inputs = inputs.to(device)\n",
+    "            labels = labels.to(device)\n",
+    "            outputs = model(inputs)\n",
+    "            predictions = torch.argmax(outputs, dim=-1)\n",
+    "            # Evaluate only on positions where labels != -100\n",
+    "            mask = labels != -100\n",
+    "            total_correct += ((predictions == labels) * mask).sum().item()\n",
+    "            total_masked += mask.sum().item()\n",
+    "    if total_masked > 0:\n",
+    "        accuracy = total_correct / total_masked * 100\n",
+    "    else:\n",
+    "        accuracy = 0\n",
+    "    print(f\"Epoch {epoch+1} - Validation Accuracy on Masked Tokens: {accuracy:.2f}%\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 43,
+   "id": "7d83fac0-da53-4308-8ec3-208858abad77",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Memory Usage: 71.88 MB\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Basic Resource Monitoring and Performance Measurements\n",
+    "\n",
+    "if 'psutil' in globals():\n",
+    "    process = psutil.Process(os.getpid())\n",
+    "    mem_info = process.memory_info()\n",
+    "    print(\"Memory Usage: {:.2f} MB\".format(mem_info.rss / (1024 * 1024)))\n",
+    "else:\n",
+    "    print(\"psutil not available. Skipping resource monitoring.\")\n",
+    "\n",
+    "# Additional performance measurements can be added as needed."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "29e6e7d4",
+   "metadata": {},
+   "source": [
+    "## Known Limitations, Debug Strategies, and Next Steps\n",
+    "\n",
+    "**Known Limitations:**  \n",
+    "- This dataset is small and may not capture the complexity of real DNA sequences, especially larger ones.\n",
+    "- The model is simple; larger and more complex architectures may be needed for real-world data.\n",
+    "\n",
+    "**Debug/Test Strategies:**  \n",
+    "- Validate model predictions on edge cases (e.g., sequences with no masked tokens).\n",
+    "- Log intermediate outputs and losses for analysis.\n",
+    "- Experiment with varying sequence lengths and mask probabilities.\n",
+    "\n",
+    "**Next Steps:**  \n",
+    "- Our accuracy is just barely above random guessing. We shoud try different hyperparamaters or model achitectures entirely.\n",
+    "- Scale up using a lot real genomic data.\n",
+    "- Might need to encode structured format as a feature somehow\n",
+    "- Integrate external validation tools (e.g., AlphaFold for folding predictions) if these steps succeed.\n",
+    "- Refine the model architecture and hyperparameters based on further experiments."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "f3af82d8",
+   "metadata": {},
+   "source": [
+    "## Development Process and Alternative Approaches\n",
+    "\n",
+    "**Exploration:**  \n",
+    "- We experimented with various transformer depths and embedding sizes, as well as batch sizes, learning rates, black-out probability, and sequence size\n",
+    "- Alternative models (such as RNNs) were considered but discarded for their limited capacity to capture long-range dependencies. However we might try it now given our accuracy.\n",
+    "\n",
+    "**Failed Attempts:**  \n",
+    "- Early versions with all synthetic data led to similar results. Implies that there is small difference betwene real and synthetic data\n",
+    "  in our model which we need to address. \n",
+    "- Data preprocessing required several iterations to correctly handle token masking and label assignments.\n",
+    "\n",
+    "**Design Decisions:**  \n",
+    "- A lightweight transformer was chosen to ensure the code runs efficiently on a MacBook.\n",
+    "- Cross-entropy loss with the ignore index (-100) is used to focus training on masked tokens.\n",
+    "\n",
+    "**Safety Considerations:**  \n",
+    "- Outputs are validated against expected token patterns to ensure biologically plausible predictions.\n",
+    "\n",
+    "**Alternative Approaches:**  \n",
+    "- Future work may explore larger models, alternative masking strategies, and integration with protein structure predictors."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "1ef58edb-8c88-4fe8-a1a3-2715a5e45641",
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.11.11"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
