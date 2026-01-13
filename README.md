@@ -2,52 +2,6 @@
 
 Welcome to your project repository! This template helps you develop and implement an optimization project over the semester.
 
-## Spring 2026 Project Examples
-
-Current student projects:
-
-1. **Decentralized Recommendation for Cold-Start Personalization**  
-   * **Summary:** Builds a cross-platform fashion recommender for users with little history. Synthesizes persona-level ratings, embeds ~3k products with CLIP image/text vectors, and benchmarks content-based filtering, collaborative filtering, low-rank matrix factorization, and a two-tower deep model. Evaluates RMSE/MAE and Precision/Recall@K to trade off global error vs. top-K relevance under cold-start.  
-   * **Link:** [Final Report](https://github.com/kuomat/STAT-4830-vllm-project/blob/main/Final%20Report.pdf)
-
-2. **Optimizing Attention Mechanisms in Transformer Models**  
-   * **Summary:** Replaces $O(n^2)$ attention with efficient variants: learned sparse masks, Performer-style kernelized attention, and hierarchical sparsity. Trains on WikiText-2, minimizing KL-divergence to a baseline Transformer while tracking cross-entropy, coherence, and memory/latency. Shows custom masks preserve fluency with lower compute.  
-   * **Link:** [Final Report](https://github.com/charisgao/STAT-4830-Optimizing-Attention-Project/blob/main/docs/report.md)
-
-3. **Poker Zero: Risk-Aware Agents for No-Limit Hold'em**  
-   * **Summary:** Designs a poker agent that blends LLM-guided reasoning with self-play reinforcement learning. Uses counterfactual regret minimization heuristics and win-rate/stack-size metrics against GTO-style opponents to study bluffing, bet sizing, and stability under incomplete information.  
-   * **Link:** [Final Report](https://github.com/AC2005/STAT-4830-poker/blob/main/docs/Final%20Report.pdf)
-
-4. **Portfolio Refinement Through Iterative Sequential Modeling (PRISM)**  
-   * **Summary:** Optimizes daily portfolios with penalties on drawdown, turnover, and concentration. Formulates a multi-objective loss, applies sequential modeling to adapt weights, and benchmarks Sharpe, max drawdown, and turnover against “safe” baselines.  
-   * **Link:** [Final Report](https://github.com/dhruv575/STAT-4830-project-base/blob/main/report.md)
-
-5. **Optimization in Preference Learning**  
-   * **Summary:** Predicts hotel choices using two pipelines: mixture preference models optimized via Frank–Wolfe variants, and low-rank matrix completion with bias-aware initialization and Huber loss. Expedia-derived data backtests show linear preference models outperform deeper nets under sparsity, while matrix completion boosts robustness.  
-   * **Link:** [Final Report](https://github.com/Lexaun-chen/STAT-4830-Group-Project/blob/main/Final_Report.pdf)
-
-6. **Designing Good Rewards for Reinforcement Learning on LLMs**  
-   * **Summary:** Implements GRPO on Qwen-1.5B for GSM8K-style reasoning, comparing rule-based vs. hybrid perplexity rewards. Early experiments on matrix inversion validate dense rewards; hybrid absolute/relative perplexity improves stability over naive reward shaping.  
-   * **Link:** [Final Report](https://github.com/JustinSQiu/STAT-4830-curriculum-learning-project/blob/main/report.md)
-
-7. **SAT Formula Extraction via Transformer Optimization**  
-   * **Summary:** Fine-tunes FLAN-T5 to emit symbolic formulas for SAT word problems, then solves them with SymPy. Uses GRPO-style training, regex parsing, and answer-level checks; reports ~81% symbolic similarity and ~72% answer accuracy with a formula-to-answer pipeline.  
-   * **Link:** [Final Report](https://github.com/awu626/STAT-4830-project/blob/main/FinalReport.md)
-
-8. **Modeling Human Behavior Without Humans – Bringing Prospect Theory to Multi-Agent RL**  
-   * **Summary:** Extends MADDPG with cumulative prospect theory transforms (CPT-MADDPG) to control risk attitudes. Evaluates on Simple Tag/Spread and first-price auctions; shows risk-seeking CPT speeds early learning, loss-averse CPT enforces prudence, and shared utility aggregation preserves coordination.  
-   * **Link:** [Final Report](https://github.com/sheyanlalmohammed1/STAT-4830-CPT-MARL-project/blob/main/report.pdf)
-
-9. **Sleep is All We Need: Optimizing EEG-Based Deep Learning Models for N1 Sleep Onset Detection**  
-   * **Summary:** Builds a two-stage ensemble for detecting the rare N1 sleep stage from single-channel EEG. Combines convolutional encoders, domain-specific PSD/Catch22 features, a transformer sequence model, and an N1-focused detector, improving N1 F1 from 0.38 to 0.53 while maintaining overall accuracy.  
-   * **Link:** [Final Report](https://github.com/kimberlyliang/STAT-4830-GOALZ-project/blob/main/report.pdf)
-
-10. **Optimizing Vehicle Routing with Graph-Based and Probabilistic Models**  
-    * **Summary:** Compares Dijkstra/A* baselines with BERT-based trip models, reinforcement learning policies, and graph neural networks to optimize travel time and EV energy use. Uses OSMnx data plus eVED/EV trip logs; predicts routes and per-trip energy, benchmarking against historical trips and shortest-path baselines.  
-    * **Link:** [Final Report](https://github.com/TheCrypted/STAT-4830-project-base/blob/main/docs/final_report.md)
-
-
-
 ## Getting Started
 
 1. **Finding Your Project Idea**
@@ -231,6 +185,50 @@ git merge main
 - See course staff for technical issues
 - Document your progress
 
+
+## Spring 2025 Project Examples
+
+Current student projects:
+
+1. **Decentralized Recommendation for Cold-Start Personalization**  
+   * **Summary:** Builds a cross-platform fashion recommender for users with little history. Synthesizes persona-level ratings, embeds ~3k products with CLIP image/text vectors, and benchmarks content-based filtering, collaborative filtering, low-rank matrix factorization, and a two-tower deep model. Evaluates RMSE/MAE and Precision/Recall@K to trade off global error vs. top-K relevance under cold-start.  
+   * **Link:** [Final Report](https://github.com/kuomat/STAT-4830-vllm-project/blob/main/Final%20Report.pdf)
+
+2. **Optimizing Attention Mechanisms in Transformer Models**  
+   * **Summary:** Replaces $O(n^2)$ attention with efficient variants: learned sparse masks, Performer-style kernelized attention, and hierarchical sparsity. Trains on WikiText-2, minimizing KL-divergence to a baseline Transformer while tracking cross-entropy, coherence, and memory/latency. Shows custom masks preserve fluency with lower compute.  
+   * **Link:** [Final Report](https://github.com/charisgao/STAT-4830-Optimizing-Attention-Project/blob/main/docs/report.md)
+
+3. **Poker Zero: Risk-Aware Agents for No-Limit Hold'em**  
+   * **Summary:** Designs a poker agent that blends LLM-guided reasoning with self-play reinforcement learning. Uses counterfactual regret minimization heuristics and win-rate/stack-size metrics against GTO-style opponents to study bluffing, bet sizing, and stability under incomplete information.  
+   * **Link:** [Final Report](https://github.com/AC2005/STAT-4830-poker/blob/main/docs/Final%20Report.pdf)
+
+4. **Portfolio Refinement Through Iterative Sequential Modeling (PRISM)**  
+   * **Summary:** Optimizes daily portfolios with penalties on drawdown, turnover, and concentration. Formulates a multi-objective loss, applies sequential modeling to adapt weights, and benchmarks Sharpe, max drawdown, and turnover against “safe” baselines.  
+   * **Link:** [Final Report](https://github.com/dhruv575/STAT-4830-project-base/blob/main/report.md)
+
+5. **Optimization in Preference Learning**  
+   * **Summary:** Predicts hotel choices using two pipelines: mixture preference models optimized via Frank–Wolfe variants, and low-rank matrix completion with bias-aware initialization and Huber loss. Expedia-derived data backtests show linear preference models outperform deeper nets under sparsity, while matrix completion boosts robustness.  
+   * **Link:** [Final Report](https://github.com/Lexaun-chen/STAT-4830-Group-Project/blob/main/Final_Report.pdf)
+
+6. **Designing Good Rewards for Reinforcement Learning on LLMs**  
+   * **Summary:** Implements GRPO on Qwen-1.5B for GSM8K-style reasoning, comparing rule-based vs. hybrid perplexity rewards. Early experiments on matrix inversion validate dense rewards; hybrid absolute/relative perplexity improves stability over naive reward shaping.  
+   * **Link:** [Final Report](https://github.com/JustinSQiu/STAT-4830-curriculum-learning-project/blob/main/report.md)
+
+7. **SAT Formula Extraction via Transformer Optimization**  
+   * **Summary:** Fine-tunes FLAN-T5 to emit symbolic formulas for SAT word problems, then solves them with SymPy. Uses GRPO-style training, regex parsing, and answer-level checks; reports ~81% symbolic similarity and ~72% answer accuracy with a formula-to-answer pipeline.  
+   * **Link:** [Final Report](https://github.com/awu626/STAT-4830-project/blob/main/FinalReport.md)
+
+8. **Modeling Human Behavior Without Humans – Bringing Prospect Theory to Multi-Agent RL**  
+   * **Summary:** Extends MADDPG with cumulative prospect theory transforms (CPT-MADDPG) to control risk attitudes. Evaluates on Simple Tag/Spread and first-price auctions; shows risk-seeking CPT speeds early learning, loss-averse CPT enforces prudence, and shared utility aggregation preserves coordination.  
+   * **Link:** [Final Report](https://github.com/sheyanlalmohammed1/STAT-4830-CPT-MARL-project/blob/main/report.pdf)
+
+9. **Sleep is All We Need: Optimizing EEG-Based Deep Learning Models for N1 Sleep Onset Detection**  
+   * **Summary:** Builds a two-stage ensemble for detecting the rare N1 sleep stage from single-channel EEG. Combines convolutional encoders, domain-specific PSD/Catch22 features, a transformer sequence model, and an N1-focused detector, improving N1 F1 from 0.38 to 0.53 while maintaining overall accuracy.  
+   * **Link:** [Final Report](https://github.com/kimberlyliang/STAT-4830-GOALZ-project/blob/main/report.pdf)
+
+10. **Optimizing Vehicle Routing with Graph-Based and Probabilistic Models**  
+    * **Summary:** Compares Dijkstra/A* baselines with BERT-based trip models, reinforcement learning policies, and graph neural networks to optimize travel time and EV energy use. Uses OSMnx data plus eVED/EV trip logs; predicts routes and per-trip energy, benchmarking against historical trips and shortest-path baselines.  
+    * **Link:** [Final Report](https://github.com/TheCrypted/STAT-4830-project-base/blob/main/docs/final_report.md)
 
 
 
