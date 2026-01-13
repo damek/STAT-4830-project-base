@@ -2,64 +2,51 @@
 
 Welcome to your project repository! This template helps you develop and implement an optimization project over the semester.
 
-## Spring 2025 Project Teams
+## Spring 2026 Project Examples
 
 Current student projects:
 
-1. **GraphSAGE-Enhanced Cold-Start Recommendation System**  
-   * **Summary:**  
-     This report presents a graph‐based recommendation system designed for e-commerce cold‐start scenarios. It integrates heterogeneous product metadata—from images to reviews—by leveraging GraphSAGE for modeling inter‐item relationships and CLIP embeddings for visual clustering. The document details the problem formulation, experimental evaluations, and resource considerations for delivering personalized recommendations to users with minimal history.  
-   * **Link:** [GraphSAGE-Enhanced Cold-Start Recommendation System](https://github.com/kuomat/STAT-4830-vllm-project/blob/main/report.md)
+1. **Decentralized Recommendation for Cold-Start Personalization**  
+   * **Summary:** Builds a cross-platform fashion recommender for users with little history. Synthesizes persona-level ratings, embeds ~3k products with CLIP image/text vectors, and benchmarks content-based filtering, collaborative filtering, low-rank matrix factorization, and a two-tower deep model. Evaluates RMSE/MAE and Precision/Recall@K to trade off global error vs. top-K relevance under cold-start.  
+   * **Link:** [Final Report](https://github.com/kuomat/STAT-4830-vllm-project/blob/main/Final%20Report.pdf)
 
-2. **Efficient Transformer Attention via Custom Sparse Mask Learning**  
-   * **Summary:**  
-     Addressing the quadratic complexity of standard Transformer attention, this report introduces a method to learn custom sparse attention masks. By minimizing the KL-divergence between a modified (sparse) attention model and a baseline Transformer, the study demonstrates how selective token attention can preserve performance while reducing computational overhead. The report outlines the mathematical formulation, implementation in PyTorch, and experimental results on language modeling tasks.  
-   * **Link:** [Efficient Transformer Attention via Custom Sparse Mask Learning](https://github.com/charisgao/STAT-4830-project/blob/main/report.md)
+2. **Optimizing Attention Mechanisms in Transformer Models**  
+   * **Summary:** Replaces $O(n^2)$ attention with efficient variants: learned sparse masks, Performer-style kernelized attention, and hierarchical sparsity. Trains on WikiText-2, minimizing KL-divergence to a baseline Transformer while tracking cross-entropy, coherence, and memory/latency. Shows custom masks preserve fluency with lower compute.  
+   * **Link:** [Final Report](https://github.com/charisgao/STAT-4830-Optimizing-Attention-Project/blob/main/docs/report.md)
 
-3. **Reinforcement Learning for Poker Strategy Optimization**  
-   * **Summary:**  
-     This report explores the use of reinforcement learning to optimize poker strategies in a simulated environment. It details the design of the simulation, reward structures tailored for bluffing and incomplete information, and experiments comparing learned policies against baseline strategies. The study highlights challenges such as non-deterministic decision-making and proposes refinements to enhance the AI's competitive performance.  
-   * **Link:** [Reinforcement Learning for Poker Strategy Optimization](https://github.com/AC2005/STAT-4830-poker/blob/main/Report.md)
+3. **Poker Zero: Risk-Aware Agents for No-Limit Hold'em**  
+   * **Summary:** Designs a poker agent that blends LLM-guided reasoning with self-play reinforcement learning. Uses counterfactual regret minimization heuristics and win-rate/stack-size metrics against GTO-style opponents to study bluffing, bet sizing, and stability under incomplete information.  
+   * **Link:** [Final Report](https://github.com/AC2005/STAT-4830-poker/blob/main/docs/Final%20Report.pdf)
 
-4. **Portfolio Optimization with Multi-Objective Constraints**  
-   * **Summary:**  
-     This report outlines a quantitative framework for daily portfolio construction that simultaneously maximizes risk-adjusted returns and minimizes drawdown while accounting for transaction costs. It formulates the optimization problem mathematically—incorporating the Sharpe ratio, maximum drawdown, and weight-change penalties—and implements a gradient-based solution using PyTorch. The report details validation via backtesting on historical data, discusses challenges such as handling short positions and computational constraints, and concludes with next steps for scaling the strategy with more assets and advanced risk measures.  
-   * **Link:** [Portfolio Optimization with Multi-Objective Constraints](https://github.com/dhruv575/STAT-4830-project-base/blob/main/report.md)
+4. **Portfolio Refinement Through Iterative Sequential Modeling (PRISM)**  
+   * **Summary:** Optimizes daily portfolios with penalties on drawdown, turnover, and concentration. Formulates a multi-objective loss, applies sequential modeling to adapt weights, and benchmarks Sharpe, max drawdown, and turnover against “safe” baselines.  
+   * **Link:** [Final Report](https://github.com/dhruv575/STAT-4830-project-base/blob/main/report.md)
 
-5. **Collaborative Optimization in Group Decision-Making: Week 3 Progress Report**  
-   * **Summary:**  
-     This Week 3 progress report details a collaborative approach to group decision-making optimization. It outlines initial model proposals, experimental setups, and preliminary results that integrate individual preferences into a unified recommendation system. The document discusses the challenges of merging diverse opinions and sets the stage for further refinements in collaborative optimization techniques.  
-   * **Link:** [Collaborative Optimization in Group Decision-Making: Week 3 Progress Report](https://github.com/Lexaun-chen/STAT-4830-Group-Project/blob/main/Week%203%20Report.pdf)
+5. **Optimization in Preference Learning**  
+   * **Summary:** Predicts hotel choices using two pipelines: mixture preference models optimized via Frank–Wolfe variants, and low-rank matrix completion with bias-aware initialization and Huber loss. Expedia-derived data backtests show linear preference models outperform deeper nets under sparsity, while matrix completion boosts robustness.  
+   * **Link:** [Final Report](https://github.com/Lexaun-chen/STAT-4830-Group-Project/blob/main/Final_Report.pdf)
 
-6. **Parameter-Efficient Reinforcement Learning via Curriculum Strategies**  
-   * **Summary:**  
-     This report presents a curriculum learning framework aimed at achieving parameter efficiency in reinforcement learning. It outlines strategies for incrementally increasing model complexity while keeping computational costs low and demonstrates through benchmark experiments how such an approach can improve convergence and overall performance with fewer parameters.  
-   * **Link:** [Parameter-Efficient Reinforcement Learning via Curriculum Strategies](https://github.com/JustinSQiu/STAT-4830-curriculum-learning-project/blob/main/docs/Parameter_Efficient_Reinforcement_Learning_Paper.pdf)
+6. **Designing Good Rewards for Reinforcement Learning on LLMs**  
+   * **Summary:** Implements GRPO on Qwen-1.5B for GSM8K-style reasoning, comparing rule-based vs. hybrid perplexity rewards. Early experiments on matrix inversion validate dense rewards; hybrid absolute/relative perplexity improves stability over naive reward shaping.  
+   * **Link:** [Final Report](https://github.com/JustinSQiu/STAT-4830-curriculum-learning-project/blob/main/report.md)
 
-7. **Optimizing Concession Stand Placement for Enhanced Stadium Accessibility and Revenue**  
-   * **Summary:**  
-     This report formulates a spatial optimization model for the strategic placement of concession stands in stadiums. By combining heuristic search with mathematical optimization, it seeks to balance user accessibility with revenue generation. Simulation studies and performance metrics validate the model's effectiveness, offering insights into its practical deployment in large venues.  
-   * **Link:** [Optimizing Concession Stand Placement for Enhanced Stadium Accessibility and Revenue](https://github.com/awu626/STAT-4830-project/blob/main/report.md)
+7. **SAT Formula Extraction via Transformer Optimization**  
+   * **Summary:** Fine-tunes FLAN-T5 to emit symbolic formulas for SAT word problems, then solves them with SymPy. Uses GRPO-style training, regex parsing, and answer-level checks; reports ~81% symbolic similarity and ~72% answer accuracy with a formula-to-answer pipeline.  
+   * **Link:** [Final Report](https://github.com/awu626/STAT-4830-project/blob/main/FinalReport.md)
 
-8. **Multi-Agent Reinforcement Learning for Optimized Decision-Making**  
-   * **Summary:**  
-     Focusing on multi-agent systems, this report explores reinforcement learning techniques to enhance decision-making in competitive and cooperative environments. It details a framework where agents learn optimal strategies through interaction, addresses challenges such as non-stationarity and credit assignment, and presents simulation results that highlight improvements in collective performance.  
-   * **Link:** [Multi-Agent Reinforcement Learning for Optimized Decision-Making](https://github.com/sheyanlalmohammed1/STAT-4830-CTP-RL-project/blob/main/report.md)
+8. **Modeling Human Behavior Without Humans – Bringing Prospect Theory to Multi-Agent RL**  
+   * **Summary:** Extends MADDPG with cumulative prospect theory transforms (CPT-MADDPG) to control risk attitudes. Evaluates on Simple Tag/Spread and first-price auctions; shows risk-seeking CPT speeds early learning, loss-averse CPT enforces prudence, and shared utility aggregation preserves coordination.  
+   * **Link:** [Final Report](https://github.com/sheyanlalmohammed1/STAT-4830-CPT-MARL-project/blob/main/report.pdf)
 
-9. **Optimizing Sleep Stage Classification through Integrated Physiological Signal Analysis**  
-   * **Summary:**  
-     This report presents a machine learning framework designed to classify sleep stages by integrating diverse physiological signals. It details advanced data preprocessing, feature extraction techniques, and classification algorithms aimed at accurately differentiating between wakefulness and various sleep states, underscoring the clinical potential of enhanced sleep analysis methodologies.  
-   * **Link:** [Optimizing Sleep Stage Classification through Integrated Physiological Signal Analysis](https://github.com/kimberlyliang/STAT-4830-GOALZ-project/blob/main/report.md)
+9. **Sleep is All We Need: Optimizing EEG-Based Deep Learning Models for N1 Sleep Onset Detection**  
+   * **Summary:** Builds a two-stage ensemble for detecting the rare N1 sleep stage from single-channel EEG. Combines convolutional encoders, domain-specific PSD/Catch22 features, a transformer sequence model, and an N1-focused detector, improving N1 F1 from 0.38 to 0.53 while maintaining overall accuracy.  
+   * **Link:** [Final Report](https://github.com/kimberlyliang/STAT-4830-GOALZ-project/blob/main/report.pdf)
 
-10. **Optimizing Urban Travel for Electric Vehicles in NYC**  
-    * **Summary:**  
-      This report develops an optimization framework targeting improved travel efficiency for electric vehicles in NYC. It integrates real-time traffic data, charging station locations, and route optimization algorithms to demonstrate significant reductions in travel time and energy consumption, paving the way for smarter urban mobility solutions.  
-    * **Link:** [Optimizing Urban Travel for Electric Vehicles in NYC](https://github.com/TheCrypted/STAT-4830-project-base/blob/main/report.md)
+10. **Optimizing Vehicle Routing with Graph-Based and Probabilistic Models**  
+    * **Summary:** Compares Dijkstra/A* baselines with BERT-based trip models, reinforcement learning policies, and graph neural networks to optimize travel time and EV energy use. Uses OSMnx data plus eVED/EV trip logs; predicts routes and per-trip energy, benchmarking against historical trips and shortest-path baselines.  
+    * **Link:** [Final Report](https://github.com/TheCrypted/STAT-4830-project-base/blob/main/docs/final_report.md)
 
-11. **Real-Time Predictive Modeling for 1v1 Basketball Live-Streams**  
-    * **Summary:**  
-      This report details the development of a real-time predictive modeling system for 1v1 basketball live-streams. It combines statistical analysis with machine learning techniques to forecast game outcomes on the fly, addressing challenges such as latency and rapidly changing game conditions, and highlighting innovative approaches to delivering timely and accurate sports analytics.  
-    * **Link:** [Real-Time Predictive Modeling for 1v1 Basketball Live-Streams](https://github.com/fortyjmps/your-repo-stat4830/blob/main/report.md)
+
 
 ## Getting Started
 
@@ -79,7 +66,7 @@ Current student projects:
      - Initial report draft
      - Self-critique document analyzing your report's strengths and weaknesses
      - Supporting Jupyter notebooks/code
-   - Due: Friday, January 31, 2025
+   - Due: Friday, January 30, 2026
 
 ## Project Development Cycle
 
@@ -98,20 +85,21 @@ See the [Week 3 Instructions](docs/assignments/week3_deliverable_instructions.md
 ## Project Schedule
 
 ### Deliverables (Due Fridays)
-- Week 2 (Jan 24): Email Project Team Names to yihuihe@wharton.upenn.edu
-- Week 3 (Jan 31): Report Draft 1 + Code + Self Critique
-- Week 4 (Feb 7): Slides Draft 1
-- Week 5 (Feb 14): Report Draft 2 + Code + Self Critique
-- Week 6 (Feb 21): Slides Draft 2
-- Week 7 (Feb 28): Report Draft 3 + Code + Self Critique
-- Week 8: ⚡ Lightning Talks in Class (Mar 5/7) & Slides Draft 3 due Friday ⚡
-- Spring Break (Mar 8-16)
-- Week 9 (Mar 21): Report Draft 4 + Code + Self Critique
-- Week 10 (Mar 28): Slides Draft 4
-- Week 11 (Apr 4): Report Draft 5 + Code + Self Critique
-- Week 12 (Apr 11): Slides Draft 5
-- Week 13: Final Presentations in Class (Apr 24/29) & Report Draft 6 + Code + Self Critique due Friday (Apr 18)
-- Week 14 (Apr 29): Final Report + Code + Self Critique Due
+- Week 2 (Jan 23): Email Project Team Names to yihuihe@wharton.upenn.edu
+- Week 3 (Jan 30): Report Draft 1 + Code + Self Critique
+- Week 4 (Feb 6): Slides Draft 1
+- Week 5 (Feb 13): Report Draft 2 + Code + Self Critique
+- Week 6 (Feb 20): Slides Draft 2
+- Week 7 (Feb 27): Report Draft 3 + Code + Self Critique
+- Week 8: ⚡ Lightning Talks in Class (Mar 3/5) & Slides Draft 3 due Friday ⚡
+- Spring Break (Mar 7-15)
+- Week 9 (Mar 20): Report Draft 4 + Code + Self Critique
+- Week 10 (Mar 27): Slides Draft 4
+- Week 11 (Apr 3): Report Draft 5 + Code + Self Critique
+- Week 12 (Apr 10): Slides Draft 5
+- Week 13 (Apr 17): Report Draft 6 + Code + Self Critique
+- Week 14 (Apr 21/23): Final Presentations in Class
+- Week 15 (Apr 28): Final Report + Code + Self Critique
 
 Note: Instructions for peer feedback will be added throughout the semester for each deliverable.
 
@@ -152,25 +140,7 @@ your-repo/
 ## Development Environment
 
 ### Editor Setup
-We recommend using one of these editors:
-
-1. **VS Code** (Free, Industry Standard)
-   - Download from https://code.visualstudio.com/
-   - Install recommended extensions:
-     - Python
-     - GitHub Pull Requests
-     - GitHub Copilot (FREE for students!)
-       - Sign up at https://education.github.com/discount_requests/application
-       - This gives you FREE access to GitHub Copilot
-       - Plus other GitHub student benefits
-
-2. **Cursor** (Paid Alternative, $20/month)
-   - Built on VS Code with additional AI features
-   - Same interface and shortcuts as VS Code
-   - Same extensions work
-   - Added AI assistance for code exploration
-
-Both editors work well with Git and provide excellent AI assistance. VS Code with Copilot is recommended for beginners as it's free with your student status and is the industry standard.
+We recommend using **Cursor**. Students with a `.edu` address get **one year of Cursor Pro for free**: https://cursor.com/students. Cursor is VS Code–compatible (same shortcuts/extensions) but adds in-IDE AI assistance tuned for multi-file context and refactors.
 
 ### Required Tools
 - Python 3.10+
@@ -187,7 +157,7 @@ Both editors work well with Git and provide excellent AI assistance. VS Code wit
    - This creates your own copy that can receive updates
 
 2. Set up Git (if you haven't already):
-   If you installed VS Code or Cursor, they'll help you install Git! Both editors have excellent Git integration built in.
+   Cursor includes Git integration and prompts you to install Git if it's missing.
    
    For detailed instructions, see the [Official Git installation guide](https://github.com/git-guides/install-git)
 
