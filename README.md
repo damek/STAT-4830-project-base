@@ -14,13 +14,13 @@ Welcome to your project repository! This template helps you develop and implemen
 
    ![Noam tweet](figures/noam.png)
 
-2. **Week 3 Deliverable**
-   - Follow the [Week 3 Instructions](docs/assignments/week3_deliverable_instructions.md)
+2. **Week 4 Deliverable**
+  - Follow the [Week 4 Instructions](docs/assignments/week4_deliverable_instructions.md)
    - Required components:
      - Initial report draft
      - Self-critique document analyzing your report's strengths and weaknesses
      - Supporting Jupyter notebooks/code
-   - Due: Friday, January 30, 2026
+  - Due: Friday, February 6, 2026
 
 ## Project Development Cycle
 
@@ -34,24 +34,23 @@ Each cycle produces specific deliverables:
 - DECIDE: Next actions plan
 - ACT: Code changes & results
 
-See the [Week 3 Instructions](docs/assignments/week3_deliverable_instructions.md) for detailed guidance on writing your first self-critique.
+See the [Week 4 Instructions](docs/assignments/week4_deliverable_instructions.md) for detailed guidance on writing your first self-critique.
 
 ## Project Schedule
 
 ### Deliverables (Due Fridays)
 - Week 2 (Jan 23): Email Project Team Names to Ai, Jiahao <jiahaoai@wharton.upenn.edu>
-- Week 3 (Jan 30): Report Draft 1 + Code + Self Critique
-- Week 4 (Feb 6): Slides Draft 1
-- Week 5 (Feb 13): Report Draft 2 + Code + Self Critique
-- Week 6 (Feb 20): Slides Draft 2
-- Week 7 (Feb 27): Report Draft 3 + Code + Self Critique
-- Week 8: ⚡ Lightning Talks in Class (Mar 3/5) & Slides Draft 3 due Friday ⚡
+- Week 4 (Feb 6): Report Draft 1 + Code + Self Critique
+- Week 5 (Feb 13): Slides Draft 1
+- Week 6 (Feb 20): Report Draft 2 + Code + Self Critique
+- Week 7 (Feb 27): Slides Draft 2
+- Week 8: ⚡ Lightning Talks in Class (Mar 3/5) & Report Draft 3 due Friday ⚡
 - Spring Break (Mar 7-15)
-- Week 9 (Mar 20): Report Draft 4 + Code + Self Critique
-- Week 10 (Mar 27): Slides Draft 4
-- Week 11 (Apr 3): Report Draft 5 + Code + Self Critique
-- Week 12 (Apr 10): Slides Draft 5
-- Week 13 (Apr 17): Report Draft 6 + Code + Self Critique
+- Week 9 (Mar 20): Slides Draft 3
+- Week 10 (Mar 27): Report Draft 4 + Code + Self Critique
+- Week 11 (Apr 3): Slides Draft 4
+- Week 12 (Apr 10): Report Draft 5 + Code + Self Critique
+- Week 13 (Apr 17): Slides Draft 5
 - Week 14 (Apr 21/23): Final Presentations in Class
 - Week 15 (Apr 28): Final Report + Code + Self Critique
 

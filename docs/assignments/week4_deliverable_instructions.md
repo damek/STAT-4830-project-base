@@ -1,6 +1,6 @@
-# Week 3 Deliverable Instructions
+# Week 4 Deliverable Instructions
 
-> Note: This document provides a suggested template and structure for your Week 3 deliverable. While the core requirements must be met, you have flexibility in how you organize and present your work. Feel free to adapt this structure to better suit your specific project needs, as long as you clearly communicate your problem, approach, implementation, and results.
+> Note: This document provides a suggested template and structure for your Week 4 deliverable. While the core requirements must be met, you have flexibility in how you organize and present your work. Feel free to adapt this structure to better suit your specific project needs, as long as you clearly communicate your problem, approach, implementation, and results.
 
 > Important: This deliverable sets the foundation for your semester's work. While your project may evolve as you learn more, you should write this report as if this is the problem you'll be working on. Think of it as your project's initial roadmap - it should be concrete and actionable, even if you end up taking some detours later.
 
@@ -37,7 +37,7 @@ A 2-page markdown document in your repository containing:
 - Alternative approaches to try
 - What you've learned so far
 
-## 2. Notebook (week3_implementation.ipynb)
+## 2. Notebook (week4_implementation.ipynb)
 A Jupyter notebook containing:
 
 ### Problem Setup
@@ -71,9 +71,9 @@ A Jupyter notebook containing:
 ```
 your-repo/
 ├── README.md                    # Project overview
-├── report.md                    # Week 3 report
+├── report.md                    # Week 4 report
 ├── notebooks/
-│   └── week3_implementation.ipynb  # Working implementation
+│   └── week4_implementation.ipynb  # Working implementation
 ├── src/
 │   ├── model.py                # Core optimization code
 │   └── utils.py                # Helper functions
@@ -81,7 +81,7 @@ your-repo/
 │   └── test_basic.py           # Basic validation tests
 └── docs/
     ├── llm_exploration/        # AI conversation logs
-    │   └── week3_log.md        # Week 3 conversations
+    │   └── week4_log.md        # Week 4 conversations
     └── development_log.md      # Progress & decisions
 ```
 
@@ -150,10 +150,10 @@ Follow the OODA (Observe, Orient, Decide, Act) process:
    Write these sections:
    - **Strengths (Max 3 bullet points)**
      Example: "Clear problem statement with concrete real-world impact"
-   
+  
    - **Areas for Improvement (Max 3 bullet points)**
      Example: "Mathematical formulation needs more rigor - currently just intuitive description"
-   
+  
    - **Critical Risks/Assumptions (2-3 sentences)**
      Example: "Assuming dataset will fit in memory. Need to test with realistic data size."
 
@@ -196,4 +196,4 @@ Feel free to:
 
 But your final critique should reflect your judgment.
 
-Remember: The goal is to have a clear plan for your next draft. Quality > Quantity. 
+Remember: The goal is to have a clear plan for your next draft. Quality > Quantity.
