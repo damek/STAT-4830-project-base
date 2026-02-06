@@ -340,6 +340,6 @@ Binary high-slop classification:
 
 - Surface redundancy can be quantified reliably.
 - Slop behaves predictably enough to justify optimization framing.
-- Prompt structure influences output redundancy.
+- Results suggest prompt structure influences output redundancy.
 - Surrogate modeling is a viable first step toward optimization.
 - This problem can be cleanly framed as numerical optimization rather than heuristic prompt tweaking.
