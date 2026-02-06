@@ -80,7 +80,7 @@ The system executes a multi-phase loop for each training step (epoch):
 
 Evaluations are parallelized across CPU cores using **Ray**, with each evaluation task assigned 2 CPU cores.
 
-**Advantage estimation and RL training -** The (prompt, generation, reward) tuples are assembled into a training batch. An **entropic adaptive beta** advantage estimator computes per-sample advantages, adjusting the KL penalty dynamically to maintain a target entropy level. This prevents the model from collapsing to a single strategy too early. The LoRA adapter weights are updated via the Tinker training API using these advantages, with a learning rate of `4e-5`.
+**Advantage estimation and RL training -** The (prompt, generation, reward) tuples are assembled into a training batch. An entropic adaptive beta advantage estimator computes per-sample advantages, adjusting the KL penalty dynamically to maintain a target entropy level. This prevents the model from collapsing to a single strategy too early. The LoRA adapter weights are updated via the Tinker training API using these advantages, with a learning rate of `4e-5`.
 
 **Buffer update -** The PUCT buffer is updated with new (state, value) pairs from the evaluated samples. High-scoring constructions become new nodes in the search tree, biasing future sampling toward promising regions of the solution space. The buffer grows over epochs, accumulating a library of increasingly strong constructions.
 
@@ -117,8 +117,8 @@ The orchestration is handled by the `tinker_cookbook.recipes.ttt.train` module, 
 ### Validation plan
 
 - **Correctness of evaluation:** Both verifiers are deterministic and unit-tested as part of the TTT-Discover task suite. AC1 uses `numpy.convolve`; CP26 uses pairwise Euclidean distance checks.
-- **Training signal quality:** We monitor `frac_mixed` (fraction of groups with both successes and failures) — a value near 1.0 indicates the RL training has good contrastive signal. A value near 0.0 (all-good or all-bad groups) would indicate the reward is uninformative.
-- **Convergence tracking:** Performance curves on W&B should show monotonic improvement in best-so-far score. KL divergence from the base model should grow gradually, not spike.
+- **Training signal quality:** We monitor `frac_mixed` (fraction of groups with both successes and failures). A value near 1.0 indicates the RL training has good contrastive signal. A value near 0.0 (all-good or all-bad groups) would indicate the reward is uninformative.
+- **Convergence tracking:** Performance curves on wanDB should show monotonic improvement in best-so-far score. KL divergence from the base model should grow gradually, not spike.
 - **Reproducibility:** Fixed random seeds, deterministic evaluation, and full metric logging ensure runs can be reproduced and compared.
 
 ### Resource requirements
