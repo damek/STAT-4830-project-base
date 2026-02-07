@@ -3,7 +3,7 @@
 ## 1) Problem Statement
 
 ### What are we optimizing? (Be specific)
-We optimize parameters **θ** of a prompt-only predictor $ f_\theta(\text{prompt}) $ that estimates a scalar slop score computed from the observed response paired with that prompt in the dataset (not from a newly generated response). Concretely, we define a response-level slop metric $ s(\text{response}) $ using surface statistics (repetition, diversity, entropy/compressibility proxies, etc.), and then train $ f_\theta $ to **minimize prediction error** of that slop score from **prompt text alone**.
+We optimize parameters **θ** of a prompt-only predictor $f_\theta(\text{prompt})$ that estimates a scalar slop score computed from the observed response paired with that prompt in the dataset (not from a newly generated response). Concretely, we define a response-level slop metric $s(\text{response})$ using surface statistics (repetition, diversity, entropy/compressibility proxies, etc.), and then train $f_\theta$ to **minimize prediction error** of that slop score from **prompt text alone**.
 
 This is an optimization problem over model parameters:
 - **Inputs:** prompts $x$
@@ -106,8 +106,8 @@ The TF–IDF matrix is used as input to PyTorch models (linear and MLP regressor
 1. Build dataset of prompts and computed targets $y=s(r)$.
 2. Convert prompts to TF–IDF vectors $X \in \mathbb{R}^{N\times d}$.
 3. Train:
-   - **Linear**: $ \hat{y}=XW+b $
-   - **MLP**: $ \hat{y}=\text{MLP}(X) $
+   - **Linear**: $\hat{y}=XW+b$
+   - **MLP**: $\hat{y}=\text{MLP}(X)$
 4. Optimize with AdamW on MSE loss; mini-batch training.
 5. Track training/validation loss and evaluation metrics each epoch.
 
