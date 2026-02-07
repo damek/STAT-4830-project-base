@@ -54,16 +54,21 @@ We compute $s(r)$ on each response to study whether the metric tracks quality an
 
 ### Mathematical formulation
 We define a response-level slop function:
+
 $$
 y = s(r) \in \mathbb{R},
 $$
+
 constructed from standardized surface metrics (examples: n-gram repetition rate, distinct-n, entropy proxy, compression ratio).
 
 We then train a prompt-only regressor $f_\theta(x)$ by minimizing mean squared error:
+
 $$
 \min_{\theta} \; \mathbb{E}_{(x,r)\sim \mathcal{D}} \left[ \left(f_\theta(x) - s(r)\right)^2 \right].
 $$
+
 In practice, we approximate the expectation with an empirical average over a sampled dataset:
+
 $$
 \min_{\theta} \; \frac{1}{N}\sum_{i=1}^{N}\left(f_\theta(x_i) - y_i\right)^2.
 $$
@@ -78,6 +83,7 @@ We compute response features:
 - caps ratio `caps_ratio`
 
 We z-score each feature across the dataset and define:
+
 $$
 s(r)=
 1.0\,z_{\text{rep3}}
@@ -90,9 +96,11 @@ $$
 
 #### Prompt representation
 We featurize prompts using TF–IDF with a maximum vocabulary size of 12,000 features:
+
 $$
 x \mapsto X \in \mathbb{R}^{N\times d}, \quad d \le 12000.
 $$
+
 The TF–IDF matrix is used as input to PyTorch models (linear and MLP regressors).
 
 ### Algorithm / approach choice and justification
