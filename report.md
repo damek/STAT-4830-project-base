@@ -18,9 +18,9 @@ Let:
 
 Ultimately, we aim to solve:
 
-\[
+$$
 \min_{\theta} \; \mathbb{E}_{p \sim \mathcal{D}} \left[ S(f(p_\theta)) \right]
-\]
+$$
 
 where \( p_\theta \) denotes a parameterized prompt.
 
