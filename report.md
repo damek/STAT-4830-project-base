@@ -12,9 +12,9 @@ The long-term objective of this project is to reduce low-quality (“sloppy”) 
 
 Let:
 
-- \( p \) = prompt  
-- \( y = f(p) \) = response from a frozen language model  
-- \( S(y) \) = scalar slop score computed from response-level surface statistics  
+- $$ p $$ = prompt  
+- $$ y = f(p) $$ = response from a frozen language model  
+- $$ S(y) $$ = scalar slop score computed from response-level surface statistics  
 
 Ultimately, we aim to solve:
 
@@ -22,7 +22,7 @@ $$
 \min_{\theta} \; \mathbb{E}_{p \sim \mathcal{D}} \left[ S(f(p_\theta)) \right]
 $$
 
-where \( p_\theta \) denotes a parameterized prompt.
+where $$ p_\theta $$ denotes a parameterized prompt.
 
 For this milestone, we focus on a necessary subproblem:
 
@@ -30,15 +30,15 @@ For this milestone, we focus on a necessary subproblem:
 
 We train a predictor:
 
-\[
+$$
 g_\phi(p) \approx S(y)
-\]
+$$
 
 and optimize:
 
-\[
+$$
 \min_{\phi} \ \frac{1}{N} \sum_{i=1}^{N} \left(g_\phi(p_i) - S(y_i)\right)^2
-\]
+$$
 
 This is a supervised regression problem where the prompt is the input and the response-derived slop score is the target.
 
@@ -66,16 +66,16 @@ We evaluate predictive performance using:
 
 - Mean Absolute Error (MAE)  
 - Root Mean Squared Error (RMSE)  
-- \( R^2 \)  
+- $$ R^2 $$
 - Spearman rank correlation  
 
 Success criteria for this milestone:
 
-- Linear model achieves positive \( R^2 \) relative to predicting the mean  
+- Linear model achieves positive $$ R^2 $$ relative to predicting the mean  
 - Non-zero Spearman correlation  
 - Stable training under MSE minimization  
 
-Because identical prompts can produce multiple responses, we expect inherent noise that limits achievable \( R^2 \).
+Because identical prompts can produce multiple responses, we expect inherent noise that limits achievable $$ R^2 $$.
 
 ---
 
@@ -102,9 +102,9 @@ Procedure:
 
 Each flattened row consists of:
 
-\[
+$$
 (\text{prompt}, \text{response}, S(\text{response}))
-\]
+$$
 
 This results in approximately 40,000 prompt-response pairs.
 
@@ -124,7 +124,7 @@ This results in approximately 40,000 prompt-response pairs.
 
 ## Slop Score Definition
 
-For each response \( y \), we compute:
+For each response $$ y $$, we compute:
 
 - Trigram repetition rate  
 - Distinct-2 score (unique bigrams / total bigrams)  
@@ -135,13 +135,13 @@ For each response \( y \), we compute:
 
 Each feature is standardized:
 
-\[
+$$
 z_i = \frac{x_i - \mu_i}{\sigma_i}
-\]
+$$
 
 The scalar slop score is defined as a weighted linear combination:
 
-\[
+$$
 S(y) =
 + w_1 z_{\text{repetition}}
 - w_2 z_{\text{distinct2}}
@@ -149,11 +149,11 @@ S(y) =
 - w_4 z_{\text{compression}}
 + w_5 z_{\text{punctuation}}
 + w_6 z_{\text{caps}}
-\]
+$$
 
 Weights are fixed heuristically and are not learned.
 
-Higher \( S(y) \) corresponds to more repetitive, lower-diversity, lower-entropy responses.
+Higher $$ S(y) $$ corresponds to more repetitive, lower-diversity, lower-entropy responses.
 
 ---
 
@@ -161,9 +161,9 @@ Higher \( S(y) \) corresponds to more repetitive, lower-diversity, lower-entropy
 
 Prompts are vectorized using TF–IDF:
 
-\[
+$$
 p \rightarrow x \in \mathbb{R}^d
-\]
+$$
 
 - Word-level features  
 - Maximum feature size capped at 12,000  
@@ -177,9 +177,9 @@ Two PyTorch regression models were trained.
 
 ### Linear Model
 
-\[
+$$
 g_\phi(x) = Wx + b
-\]
+$$
 
 Implemented using `torch.nn.Linear`.
 
@@ -201,12 +201,12 @@ This introduces nonlinearity in mapping prompt features to slop score.
 
 Both models minimize mean squared error:
 
-\[
+$$
 \mathcal{L}(\phi) =
 \frac{1}{N}
 \sum_{i=1}^{N}
 \left(g_\phi(p_i) - S(y_i)\right)^2
-\]
+$$
 
 Optimizer: Adam  
 Training performed over multiple epochs using mini-batches.
@@ -217,7 +217,7 @@ Training performed over multiple epochs using mini-batches.
 
 - 80/20 train-test split  
 - Evaluation on held-out test set  
-- Metrics: MAE, RMSE (computed as \( \sqrt{\text{MSE}} \)), \( R^2 \), Spearman correlation  
+- Metrics: MAE, RMSE (computed as $$ \sqrt{\text{MSE}} $$, $$ R^2 $$, Spearman correlation  
 - Scatter plots of predicted vs true slop  
 
 ---
@@ -249,22 +249,22 @@ Training performed over multiple epochs using mini-batches.
 
 - MAE ≈ 1.20  
 - RMSE ≈ 2.06  
-- \( R^2 \approx 0.02 \)  
-- Spearman \( \rho \approx 0.23 \)
+- $$ R^2 \approx 0.02 $$
+- Spearman $$ \rho \approx 0.23 $$
 
 ### MLP
 
 - MAE ≈ 1.20
 - RMSE ≈ 2.26
-- \( R^2 < 0 \)  
-- Spearman \( \rho \approx 0.16 \)
+- $$ R^2 < 0 $$  
+- Spearman $$ \rho \approx 0.16 $$
 
 ---
 
 ## Interpretation
 
-- The **linear model achieves a small but positive \( R^2 \)**, indicating modest predictive signal.
-- The **MLP performs worse**, with negative \( R^2 \), suggesting additional nonlinearity does not improve performance.
+- The **linear model achieves a small but positive $$ R^2 $$**, indicating modest predictive signal.
+- The **MLP performs worse**, with negative $$ R^2 $$, suggesting additional nonlinearity does not improve performance.
 - Spearman correlations indicate weak but non-zero rank predictability.
 - Overall predictive power is limited.
 
@@ -274,7 +274,7 @@ These results suggest that prompt text contains some signal about response-level
 
 ## Current Limitations
 
-- Identical prompts map to multiple slop targets, limiting achievable \( R^2 \).
+- Identical prompts map to multiple slop targets, limiting achievable $$ R^2 $$.
 - Slop score is heuristic and not human-validated.
 - TF–IDF ignores semantic structure.
 - No regularization or hyperparameter tuning performed.
@@ -292,7 +292,7 @@ These results suggest that prompt text contains some signal about response-level
 
 ## Unexpected Challenges
 
-- RMSE required manual computation via \( \sqrt{\text{MSE}} \) due to sklearn version differences.
+- RMSE required manual computation via $$ \sqrt{\text{MSE}} $$ due to sklearn version differences.
 - Target noise from response stochasticity reduced achievable performance.
 - MLP overfitting occurred without performance gains.
 
