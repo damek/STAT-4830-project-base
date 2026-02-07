@@ -94,7 +94,6 @@ Prompt–response pairs with optional preference labels. Current source: **Anthr
 ## 4. Next Steps (~½ page)
 
 **Immediate improvements**  
-- Add **report.md** (this document) and keep it aligned with the notebook.  
 - **Validate slop proxy:** Report mean/median slop for chosen vs rejected (or point-biserial correlation); if the proxy does not separate chosen/rejected, revise metrics or weights.  
 - **Fix notebook consistency:** Re-run all cells from top; ensure slop_score scale is single and that high/low example outputs match the current formula.  
 - Either **add sklearn RF/GB** baselines (same train/test, same eval) or update the notebook intro to state only linear + MLP are used in this draft.
