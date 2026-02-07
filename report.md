@@ -143,12 +143,12 @@ The scalar slop score is defined as a weighted linear combination:
 
 $$
 S(y) =
-+ w_1 z_{\text{repetition}}
-- w_2 z_{\text{distinct2}}
-- w_3 z_{\text{entropy}}
-- w_4 z_{\text{compression}}
-+ w_5 z_{\text{punctuation}}
-+ w_6 z_{\text{caps}}
+w_1 z_{\mathrm{repetition}}
+- w_2 z_{\mathrm{distinct2}}
+- w_3 z_{\mathrm{entropy}}
+- w_4 z_{\mathrm{compression}}
++ w_5 z_{\mathrm{punctuation}}
++ w_6 z_{\mathrm{caps}}
 $$
 
 Weights are fixed heuristically and are not learned.
