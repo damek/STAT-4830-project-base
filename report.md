@@ -1,346 +1,208 @@
-# Predicting “Slop” in LLM Outputs  
-**STAT 4830 – Numerical Optimization for Data Science and Machine Learning**  
-Milestone 1 Report  
+# Week 4 Report — Learning a Prompt-Level “Slop” Predictor
 
----
+## 1) Problem Statement
 
-# 1. Problem Statement
+### What are we optimizing? (Be specific)
+We optimize parameters **θ** of a prompt-only predictor $ f_\theta(\text{prompt}) $ that estimates a scalar slop score computed from the observed response paired with that prompt in the dataset (not from a newly generated response). Concretely, we define a response-level slop metric $ s(\text{response}) $ using surface statistics (repetition, diversity, entropy/compressibility proxies, etc.), and then train $ f_\theta $ to **minimize prediction error** of that slop score from **prompt text alone**.
 
-## What Are We Optimizing?
+This is an optimization problem over model parameters:
+- **Inputs:** prompts $x$
+- **Targets:** computed slop scores $y = s(\text{response})$
+- **Model:** $f_\theta(x)$
+- **Goal:** learn $\theta$ to best predict $y$
 
-The long-term objective of this project is to reduce low-quality (“sloppy”) outputs from large language models by treating prompt design as a numerical optimization problem.
+### Why does this matter?
+Low-quality outputs (“slop”) waste user time, harm trust, and increase moderation / support load. If we can **predict slop risk from a prompt**, we can:
+- proactively **rewrite or constrain prompts**,
+- route risky prompts to stronger models or additional checks,
+- and ultimately support **optimization over prompts** (e.g., prompt search / RL) to reduce slop while preserving usefulness.
 
-Let:
+### How will we measure success?
+We evaluate success at two levels:
 
--p= prompt  
--y = f(p)= response from a frozen language model  
--S(y)= scalar slop score computed from response-level surface statistics  
+1. **Metric validity (response-level):**
+   - Does the slop score behave sensibly across examples?
+   - Does it align (even weakly) with preference signals such as “chosen vs rejected” responses?
 
-Ultimately, we aim to solve:
+2. **Predictive performance (prompt → slop):**
+   - Regression metrics: **MAE, RMSE, $R^2$**
+   - Rank correlation: **Spearman ρ** (do we rank prompts by slop risk correctly?)
 
+### Constraints
+- **No generation-time optimization** in the initial deliverable: we do not alter a base LLM or run RL on a generator yet.
+- **Compute limits:** features should be cheap and batchable; model should train on a laptop/Colab GPU quickly.
+- **Interpretability:** features and the composite slop score should be explainable and debuggable.
+
+### Data needed
+We need prompt–response pairs with some quality signal. For the initial experiment we use **paired preference data** with:
+- a prompt $x$,
+- a preferred response $r^{+}$ (“chosen”),
+- a less preferred response $r^{-}$ (“rejected”).
+
+We use the Anthropic/hh-rlhf dataset (train split), which provides the (prompt, chosen, rejected) pairs.
+
+We compute $s(r)$ on each response to study whether the metric tracks quality and to create training targets for $f_\theta$.
+
+### What could go wrong?
+- **Metric mis-specification:** surface heuristics might not capture what humans mean by “slop” (could confound with length, topic, style).
+- **Shortcut learning:** the prompt model might learn dataset artifacts rather than genuine slop risk.
+- **Weak supervision mismatch:** “chosen vs rejected” reflects many factors (helpfulness, safety, tone), not just slop.
+- **Generalization:** a predictor trained on one dataset/model family may not transfer.
+
+
+## 2) Technical Approach
+
+### Mathematical formulation
+We define a response-level slop function:
 $$
-\min_{\theta} \; \mathbb{E}_{p \sim \mathcal{D}} \left[ S(f(p_\theta)) \right]
+y = s(r) \in \mathbb{R},
 $$
+constructed from standardized surface metrics (examples: n-gram repetition rate, distinct-n, entropy proxy, compression ratio).
 
-wherep_\thetadenotes a parameterized prompt.
-
-For this milestone, we focus on a necessary subproblem:
-
-> Can we learn a function that predicts a measurable slop score using only the prompt text?
-
-We train a predictor:
-
+We then train a prompt-only regressor $f_\theta(x)$ by minimizing mean squared error:
 $$
-g_\phi(p) \approx S(y)
+\min_{\theta} \; \mathbb{E}_{(x,r)\sim \mathcal{D}} \left[ \left(f_\theta(x) - s(r)\right)^2 \right].
 $$
-
-and optimize:
-
+In practice, we approximate the expectation with an empirical average over a sampled dataset:
 $$
-\min_{\phi} \ \frac{1}{N} \sum_{i=1}^{N} \left(g_\phi(p_i) - S(y_i)\right)^2
-$$
-
-This is a supervised regression problem where the prompt is the input and the response-derived slop score is the target.
-
----
-
-## Why This Problem Matters
-
-Large language models often generate responses that are repetitive, low-diversity, mechanically structured, or information-light. While “quality” is subjective, many undesirable outputs share measurable structural characteristics.
-
-If:
-
-1. Slop can be quantified numerically,
-2. Slop varies systematically with prompt structure,
-3. Slop is predictable from prompts,
-
-then prompt engineering can be reframed as a principled optimization problem rather than heuristic trial-and-error.
-
-Milestone 1 evaluates whether slop is measurable and whether prompt text contains predictive signal.
-
----
-
-## How We Measure Success
-
-We evaluate predictive performance using:
-
-- Mean Absolute Error (MAE)  
-- Root Mean Squared Error (RMSE)  
--R^2
-- Spearman rank correlation  
-
-Success criteria for this milestone:
-
-- Linear model achieves positiveR^2relative to predicting the mean  
-- Non-zero Spearman correlation  
-- Stable training under MSE minimization  
-
-Because identical prompts can produce multiple responses, we expect inherent noise that limits achievableR^2.
-
----
-
-## Constraints
-
-- The language model is frozen (no fine-tuning).
-- Only prompt text is used as input features.
-- Slop is defined using surface-level statistics only.
-- Dataset size limited to ~20,000 sampled examples.
-- CPU-based PyTorch training (Google Colab).
-
----
-
-## Data Used
-
-We use the `Anthropic/hh-rlhf` dataset (train split).
-
-Procedure:
-
-- Randomly sample ~20,000 examples.
-- Extract the prompt.
-- Include both chosen and rejected responses.
-- Compute a separate slop score for each response.
-
-Each flattened row consists of:
-
-$$
-(\text{prompt}, \text{response}, S(\text{response}))
+\min_{\theta} \; \frac{1}{N}\sum_{i=1}^{N}\left(f_\theta(x_i) - y_i\right)^2.
 $$
 
-This results in approximately 40,000 prompt-response pairs.
+#### Slop score definition
+We compute response features:
+- trigram repetition `ngram_repetition_3`
+- distinct-2 `distinct_2`
+- character entropy `char_entropy`
+- compression ratio `compression_ratio`
+- punctuation density `punct_density`
+- caps ratio `caps_ratio`
 
----
-
-## What Could Go Wrong
-
-- Surface metrics may not align with human-perceived quality.
-- Identical prompts with different responses introduce target noise.
-- Slop may depend more on model randomness than prompt structure.
-- TF–IDF features may miss semantic meaning.
-- Heuristic slop weights may bias the metric.
-
----
-
-# 2. Technical Approach
-
-## Slop Score Definition
-
-For each responsey, we compute:
-
-- Trigram repetition rate  
-- Distinct-2 score (unique bigrams / total bigrams)  
-- Character-level Shannon entropy  
-- Compression ratio (via zlib)  
-- Punctuation density  
-- Capital letter ratio  
-
-Each feature is standardized:
-
+We z-score each feature across the dataset and define:
 $$
-z_i = \frac{x_i - \mu_i}{\sigma_i}
+s(r)=
+1.0\,z_{\text{rep3}}
+-1.0\,z_{\text{distinct2}}
+-0.7\,z_{\text{entropy}}
+-0.7\,z_{\text{compression}}
++0.2\,z_{\text{punct}}
++0.2\,z_{\text{caps}}.
 $$
 
-The scalar slop score is defined as a weighted linear combination:
-
+#### Prompt representation
+We featurize prompts using TF–IDF with a maximum vocabulary size of 12,000 features:
 $$
-S(y) =
-w_1 z_{\mathrm{repetition}}
-- w_2 z_{\mathrm{distinct2}}
-- w_3 z_{\mathrm{entropy}}
-- w_4 z_{\mathrm{compression}}
-+ w_5 z_{\mathrm{punctuation}}
-+ w_6 z_{\mathrm{caps}}
+x \mapsto X \in \mathbb{R}^{N\times d}, \quad d \le 12000.
 $$
+The TF–IDF matrix is used as input to PyTorch models (linear and MLP regressors).
 
-Weights are fixed heuristically and are not learned.
+### Algorithm / approach choice and justification
+- **Slop metric:** heuristics-based composite score enables fast iteration and interpretability. It is a pragmatic proxy objective suitable for an initial deliverable.
+- **Prompt featurization:** TF–IDF over prompt text provides a strong sparse baseline for text regression without requiring a large encoder.
+- **Models:**
+  - Linear regression in PyTorch as a baseline (fast, interpretable).
+  - Small MLP regressor in PyTorch as a higher-capacity model (still lightweight).
 
-HigherS(y)corresponds to more repetitive, lower-diversity, lower-entropy responses.
+### PyTorch implementation strategy
+1. Build dataset of prompts and computed targets $y=s(r)$.
+2. Convert prompts to TF–IDF vectors $X \in \mathbb{R}^{N\times d}$.
+3. Train:
+   - **Linear**: $ \hat{y}=XW+b $
+   - **MLP**: $ \hat{y}=\text{MLP}(X) $
+4. Optimize with AdamW on MSE loss; mini-batch training.
+5. Track training/validation loss and evaluation metrics each epoch.
 
----
+### Validation methods
+- Report MAE/RMSE/$R^2$, Spearman ρ on held-out test split of prompt–response rows.
+- Sanity checks for metric behavior:
+  - Inspect high-slop vs low-slop examples.
+  - Compare slop distributions for chosen vs rejected responses.
 
-## Prompt Representation
+### Resource requirements and constraints
+- CPU: feature computation and TF–IDF fitting.
+- Memory: TF–IDF matrix (sparse) and batch tensors.
+- Optional GPU: speeds up MLP training but not required.
+- Time: minutes per run on Colab for moderate sample sizes.
 
-Prompts are vectorized using TF–IDF:
 
-$$
-p \rightarrow x \in \mathbb{R}^d
-$$
+## 3) Initial Results
 
-- Word-level features  
-- Maximum feature size capped at 12,000  
-- Sparse matrix converted to dense PyTorch tensors  
+### Evidence the implementation works
+- End-to-end pipeline executes:
+  1) loads preference dataset,
+  2) computes response-level slop features,
+  3) aggregates them into a scalar slop score,
+  4) trains prompt-only regressors in PyTorch,
+  5) evaluates on held-out test split of prompt–response rows with standard regression metrics.
 
----
+### Basic performance metrics
+We compute and report:
+- **MAE** (mean absolute error)
+- **RMSE** (root mean squared error)
+- **$R^2$** (variance explained)
+- **Spearman ρ** (rank correlation)
 
-## Models Implemented
+These metrics quantify how well prompt text predicts the slop score.
 
-Two PyTorch regression models were trained.
+### Quantitative results
+Using 25,000 prompt–response rows total (20,000 train / 5,000 test) and TF–IDF with 12,000 features:
 
-### Linear Model
-
-$$
-g_\phi(x) = Wx + b
-$$
-
-Implemented using `torch.nn.Linear`.
-
----
-
-### Multi-Layer Perceptron (MLP)
-
-Architecture:
-
-- Input layer  
-- One hidden layer with ReLU activation  
-- Output layer  
-
-This introduces nonlinearity in mapping prompt features to slop score.
-
----
-
-## Objective Function
-
-Both models minimize mean squared error:
-
-$$
-\mathcal{L}(\phi) =
-\frac{1}{N}
-\sum_{i=1}^{N}
-\left(g_\phi(p_i) - S(y_i)\right)^2
-$$
-
-Optimizer: Adam  
-Training performed over multiple epochs using mini-batches.
-
----
-
-## Validation Methods
-
-- 80/20 train-test split  
-- Evaluation on held-out test set  
-- Metrics: MAE, RMSE (computed as\sqrt{\text{MSE}},R^2, Spearman correlation  
-- Scatter plots of predicted vs true slop  
-
----
-
-## Resource Requirements and Constraints
-
-- ~40k flattened samples  
-- TF–IDF dimension ≤ 12k  
-- CPU-only PyTorch training  
-- Runtime: minutes per experiment  
-- Memory dominated by TF–IDF matrix  
-
----
-
-# 3. Initial Results
-
-## Evidence Implementation Works
-
-- All slop metrics compute successfully.
-- Z-score normalization stabilizes feature scaling.
-- Both models converge under MSE training.
-- No numerical instability observed.
-
----
-
-## Performance Metrics
-
-### Linear Model
-
-- MAE ≈ 1.20  
-- RMSE ≈ 2.06  
--R^2 \approx 0.02
-- Spearman\rho \approx 0.23
-
-### MLP
-
+**Linear:**
 - MAE ≈ 1.20
+- RMSE ≈ 2.06
+- $R^2$ ≈ 0.02
+- Spearman ρ ≈ 0.24
+
+**MLP:**
+- MAE ≈ 1.30
 - RMSE ≈ 2.26
--R^2 < 0 
-- Spearman\rho \approx 0.16
+- $R^2$ < 0
+- Spearman ρ ≈ 0.16
 
----
+### Current limitations
+- Slop score is **heuristic** and may conflate:
+  - response length,
+  - refusal/safety boilerplate,
+  - specific stylistic patterns.
+- TF–IDF prompt features ignore deeper semantics; may miss long-range structure.
+- Dataset preference signal is not “pure slop,” so alignment is imperfect.
 
-## Interpretation
+### Resource usage measurements
+- Feature extraction is linear in response length and fast per example.
+- TF–IDF + linear model training is efficient on CPU.
+- MLP adds modest compute but remains lightweight.
 
-- The **linear model achieves a small but positiveR^2**, indicating modest predictive signal.
-- The **MLP performs worse**, with negativeR^2, suggesting additional nonlinearity does not improve performance.
-- Spearman correlations indicate weak but non-zero rank predictability.
-- Overall predictive power is limited.
+### Unexpected challenges
+- Metric scaling / combining heterogeneous features requires careful standardization.
+- Some metrics are sensitive to tokenization choices (word vs char vs n-gram boundaries).
+- Evaluation requires care to avoid leakage across prompt duplicates or near-duplicates.
 
-These results suggest that prompt text contains some signal about response-level slop, but the signal is weak.
 
----
+## 4) Next Steps
 
-## Current Limitations
+### Immediate improvements needed
+1. **Ablation study** on slop metric components:
+   - Remove one feature at a time and measure (a) chosen–rejected separation and (b) predictability from prompts.
+2. **Robust normalization**:
+   - Ensure score is stable across response lengths and styles (e.g., length-controlled variants).
+3. **Stronger baselines**:
+   - Add ridge regression / elastic net; compare to MLP.
 
-- Identical prompts map to multiple slop targets, limiting achievableR^2.
-- Slop score is heuristic and not human-validated.
-- TF–IDF ignores semantic structure.
-- No regularization or hyperparameter tuning performed.
+### Technical challenges to address
+- **Metric validity:** quantify whether slop score matches human judgments (or at least preference ordering) beyond anecdotal examples.
+- **Generalization:** does a predictor trained on one dataset transfer to other prompt distributions?
+- **Confounds:** disentangle slop from refusal templates, politeness, verbosity, and safety-related text.
 
----
+### Questions we need help with
+- What is the best **ground-truth** signal for “slop” (human ratings vs pairwise preference vs curated test set)?
+- How should we define constraints that preserve usefulness while reducing slop (e.g., factuality, on-topic, safety)?
+- What is the most appropriate optimization framing for later stages (direct prompt optimization vs learning a reward model)?
 
-## Resource Usage Measurements
+### Alternative approaches to try
+- Pairwise response-level modeling to learn a response “slop/quality” scorer that separates chosen vs rejected, then use it as a target/reward.
+- Swap TF–IDF for a small frozen text encoder (e.g., sentence embeddings) with a shallow PyTorch head.
+- Learn the slop metric itself (weights or a small model over features) using preference supervision.
 
-- Dataset: ~20k examples (~40k flattened rows)  
-- Feature dimension: ≤ 12k  
-- CPU training  
-- Training time: several minutes per run  
-
----
-
-## Unexpected Challenges
-
-- RMSE required manual computation via\sqrt{\text{MSE}}due to sklearn version differences.
-- Target noise from response stochasticity reduced achievable performance.
-- MLP overfitting occurred without performance gains.
-
----
-
-# 4. Next Steps
-
-## Immediate Improvements Needed
-
-- Aggregate slop per prompt (e.g., mean over responses) to reduce noise.
-- Add L2 regularization to linear model.
-- Tune hyperparameters.
-- Compare against stronger baselines.
-
----
-
-## Technical Challenges to Address
-
-- Designing a principled, human-aligned slop metric.
-- Improving semantic representation of prompts.
-- Determining whether ranking formulation is more appropriate than regression.
-- Quantifying irreducible noise from response randomness.
-
----
-
-## Questions for Instructor
-
-- Is weak but positive rank correlation sufficient to justify optimization framing?
-- Should we incorporate human evaluation of slop?
-- Would contrastive modeling (chosen vs rejected) be more appropriate?
-
----
-
-## Alternative Approaches to Try
-
-- Transformer-based prompt embeddings.
-- Pairwise ranking loss instead of MSE.
-- Binary classification (high vs low slop).
-- Contrastive learning between chosen and rejected responses.
-
----
-
-## What We Have Learned So Far
-
-- Slop can be formalized numerically using structural metrics.
-- Slop exhibits measurable variation across responses.
-- Prompt text contains weak but detectable predictive signal.
-- Linear models outperform nonlinear MLPs in this setting.
-- Response stochasticity is a central bottleneck.
-
-This milestone establishes that slop is measurable and weakly predictable from prompts, providing preliminary justification for framing prompt design as a numerical optimization problem.
+### What we’ve learned so far
+- A practical slop proxy can be built from cheap surface statistics and used as an optimization target.
+- Prompt-only prediction is feasible as a first step and provides a foundation for future **prompt optimization** loops.
+- The biggest risk is **objective validity**; the next phase should focus on verifying and refining the slop definition before optimizing prompts against it.
