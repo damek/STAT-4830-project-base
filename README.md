@@ -297,6 +297,10 @@ Current student projects:
     * **Summary:** Casts prompt injection and jailbreak-style attacks as a reinforcement learning optimization problem where an adversary rewrites prompts to induce bad outputs despite GEPA-generated system prompts. Uses REINFORCE-style training with toxicity-oriented evaluation and documents early-stage bottlenecks around model/metric selection and GEPA headroom.  
     * **Link:** [Initial Report](https://github.com/05rentao/prompt-optimization/blob/main/report.md)
 
+16. **Zeroth-Order RL Optimization for LLM Prompt Policies (Wordle/Prime Intellect)**  
+    * **Summary:** Compares policy-gradient and evolutionary-strategy optimization in a black-box LLM RL setting where only scalar episode rewards are exposed. Uses prompt-module policies in Prime Intellect Wordle environments, implements a shared reward-extraction/evaluation pipeline, and reports initial feasibility with planned matched-budget PG-vs-ES comparisons.  
+    * **Link:** [Initial Report](https://github.com/sungycho/stat4830/blob/main/report.md)
+
 
 
 
