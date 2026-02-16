@@ -229,6 +229,74 @@ Current student projects:
     * **Summary:** Compares Dijkstra/A* baselines with BERT-based trip models, reinforcement learning policies, and graph neural networks to optimize travel time and EV energy use. Uses OSMnx data plus eVED/EV trip logs; predicts routes and per-trip energy, benchmarking against historical trips and shortest-path baselines.  
     * **Link:** [Final Report](https://github.com/TheCrypted/STAT-4830-project-base/blob/main/docs/final_report.md)
 
+11. **Learning to Bid: Deep CFR for Fantasy Hockey Auctions**  
+    * **Summary:** Applies Deep Counterfactual Regret Minimization to fantasy hockey auction drafts after iterating through AlphaZero and PPO prototypes. Uses a custom multi-player auction environment with budget/roster constraints and reports strong qualitative play against human opponents, especially in two-player settings.  
+    * **Link:** [Final Report](https://github.com/agrawalsparsh/STAT-4830-sparsh-project/blob/main/docs/report.pdf)
+
+## Spring 2026 Project Examples (Initial Reports)
+
+Current student projects:
+
+1. **Playlist Ordering Optimization Under Skip Behavior**  
+   * **Summary:** Optimizes track ordering to reduce predicted skip events in music sessions using a two-stage pipeline: skip-probability modeling plus playlist reordering. Uses Spotify sequential skip data, frames reordering as a combinatorial optimization problem, and evaluates with offline ranking and calibration metrics.  
+   * **Link:** [Initial Report](https://github.com/divekpatel/STAT-4830-Vanishing-Gradients-project/blob/main/report.md)
+
+2. **Learning a Prompt-Level Slop Predictor**  
+   * **Summary:** Defines a response-quality "slop" score from repetition/diversity/entropy features, then trains a prompt-only regressor to predict that score from prompt text. Uses Anthropic HH-RLHF pairs for weak supervision and evaluates with MAE/RMSE/R^2 plus rank correlation.  
+   * **Link:** [Initial Report](https://github.com/braden-j/STAT-4830-PromptLab-project/blob/main/report.md)
+
+3. **Evolution Strategies for Sparse-Reward Reinforcement Learning**  
+   * **Summary:** Compares vanilla evolution strategies against PPO on obstacle-rich GridWorld tasks with sparse rewards. Initial runs reach high success under reward shaping, with clear plans to stress-test pure sparse settings, harder environments, and variance-reduction methods.  
+   * **Link:** [Initial Report](https://github.com/anirudhb123/STAT-4830-project-base/blob/main/report.md)
+
+4. **Differentiable Physics vs. Convex Relaxation for Battery Arbitrage**  
+   * **Summary:** Benchmarks a non-convex differentiable battery optimizer in PyTorch against a planned convex QP baseline for energy arbitrage under state-of-charge constraints. Early experiments on NYISO prices show profitable but oscillatory training with zero SoC violations, highlighting convergence/constraint trade-offs.  
+   * **Link:** [Initial Report](https://github.com/adamt38/STAT-4830-energy_arbitrage-project/blob/main/report.md)
+
+5. **Recursive Language Models with Python REPL Tool Use**  
+   * **Summary:** Implements an RLM-style loop where a model queries an external Python REPL to solve long-context retrieval tasks. The initial deterministic scaffold achieves perfect synthetic retrieval accuracy and sets up the next phase of LLM-generated actions and training for multi-step recursive editing.  
+   * **Link:** [Initial Report](https://github.com/aryanarora236/STAT-4830-RL-project/blob/main/report.md)
+
+6. **Optimizing Sheet Music Similarity Metrics**  
+   * **Summary:** Learns constrained weights over symbolic music features (key, time, pitch statistics, density) to classify whether score pages come from the same piece. Initial experiments on Bach chorales show above-baseline performance and motivate richer features, larger datasets, and improved optimization stability.  
+   * **Link:** [Initial Report](https://github.com/phillipduarte/STAT-4830-learning-music-project/blob/main/report.md)
+
+7. **Test-Time RL for Verifiable Optimization Search (AlphaGrad)**  
+   * **Summary:** Adapts AlphaEvolve-style proposal-and-verification loops by adding test-time RL/LoRA updates on strictly verifiable optimization tasks. Focuses on deterministic reward signals, valid proposal rates, and improvement trajectories on AC1 and circle-packing benchmarks.  
+   * **Link:** [Initial Report](https://github.com/jonrxu/STAT-4830-AlphaGrad-project/blob/main/report.md)
+
+8. **Portfolio Maximization with Constrained Mean-Variance Optimization (NAPPERS)**  
+   * **Summary:** Builds a leak-free monthly equity backtest that solves constrained mean-variance allocations with turnover penalties using differentiable PyTorch optimization. Initial results track equal-weight benchmarks closely, revealing stable implementation but weak signal strength and prompting stronger return/risk modeling next.  
+   * **Link:** [Initial Report](https://github.com/pald22/STAT-4830-NAPPERS-project/blob/main/report_md.pdf)
+
+9. **Online Portfolio Optimization: S&P 500 vs IPO 180-Day Index**  
+   * **Summary:** Optimizes daily long-only allocations between SPY and a custom IPO index via projected online gradient descent on a risk-adjusted objective with volatility, drawdown, and turnover penalties. Defines clear performance targets and identifies survivorship/look-ahead risks in financial data construction.  
+   * **Link:** [Initial Report](https://github.com/shivani9298/STAT-4830-OSO/blob/main/report.md)
+
+10. **MRI Reconstruction from Undersampled K-Space via Kernel Optimization**  
+    * **Summary:** Reconstructs MRI images by optimizing kernel coefficients in a Fourier-domain inverse problem rather than pixel space directly. Initial results on GBM MRI slices show promising PSNR/MSE and outline next steps on baselines, regularization, and scaling to larger datasets.  
+    * **Link:** [Initial Report](https://github.com/suzannasem/STAT-4830-project-base/blob/main/report.md)
+
+11. **Vision Transformer (ViT) Training Pipeline for CIFAR-10**  
+    * **Summary:** Builds a reproducible PyTorch ViT pipeline to minimize wall-clock time to a target 94% CIFAR-10 test accuracy while tracking throughput and GPU memory. Compares pretrained-vs-scratch setups, validates deterministic behavior, and establishes a benchmark foundation for augmentation and mixed-precision speedups.  
+    * **Link:** [Initial Report](https://github.com/mayankd101/STAT-4830-Mayank-Sai-Ayush-project/blob/exploration/report.md)
+
+12. **Differentiable Learning in Multi-Agent First-Price Auctions**  
+    * **Summary:** Studies whether simultaneously learning bidders converge to Nash equilibrium in first-price auctions by smoothing winner-take-all utilities and running gradient-based multi-agent optimization. Initial two-agent runs converge near the theoretical linear bidding equilibrium, with planned scaling to larger populations and equilibrium-gap diagnostics.  
+    * **Link:** [Initial Report](https://github.com/khaluong1229/marl-first-price-auctions/blob/main/report.md)
+
+13. **Autonomous Racing Policy Optimization in RacecarGym**  
+    * **Summary:** Frames autonomous racing as a sequential control problem with partial observations, continuous actions, and safety constraints, using RacecarGym as the training/evaluation environment. The initial report establishes environment structure, sensing/action assumptions, and a staged RL roadmap before expanding to richer rewards and multi-agent settings.  
+    * **Link:** [Initial Report](https://github.com/yuvimalik/Racing_Gym_RL/blob/main/STAT%204830%20First%20Report.pdf)
+
+14. **LogSumExp Continuation for Peak Autoconvolution Bounds (Sidon Autocorrelation)**  
+    * **Summary:** Optimizes upper bounds for an open mathematical constant by minimizing peak autoconvolution over the simplex using a two-phase method: LSE continuation plus Polyak subgradient polishing. Reports validated CPU-only implementation, strong scaling across discretization sizes, and near-state-of-the-art bounds with clear paths to higher-resolution and FFT-based acceleration.  
+    * **Link:** [Initial Report](https://github.com/AndreiPiterbarg/sidon-autocorrelation/blob/main/docs/report.md)
+
+15. **Adversarial Prompt Optimization Against GEPA-Aided Models**  
+    * **Summary:** Casts prompt injection and jailbreak-style attacks as a reinforcement learning optimization problem where an adversary rewrites prompts to induce bad outputs despite GEPA-generated system prompts. Uses REINFORCE-style training with toxicity-oriented evaluation and documents early-stage bottlenecks around model/metric selection and GEPA headroom.  
+    * **Link:** [Initial Report](https://github.com/05rentao/prompt-optimization/blob/main/report.md)
+
 
 
 
