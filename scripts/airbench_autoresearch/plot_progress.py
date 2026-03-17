@@ -125,8 +125,8 @@ def main() -> int:
     rows = load_rows(results_path)
 
     proxy_rows = [r for r in rows if r["phase"] == "proxy"]
-    strict_rows = [r for r in rows if r["phase"] in {"baseline_strict", "strict_confirm"}]
-    baseline_strict = next((r for r in strict_rows if r["phase"] == "baseline_strict"), None)
+    strict_rows = [r for r in rows if r["phase"] in {"baseline_strict", "baseline_strict_record", "strict_confirm"}]
+    baseline_strict = next((r for r in strict_rows if r["phase"] in {"baseline_strict", "baseline_strict_record"}), None)
     kept_rows = [r for r in strict_rows if r["status"] == "keep"]
     strict_discards = [r for r in strict_rows if r["status"] == "discard"]
 

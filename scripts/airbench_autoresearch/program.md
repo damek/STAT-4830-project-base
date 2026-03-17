@@ -41,10 +41,32 @@ The runtime environment is fixed:
 - one `A100-40GB`
 - CIFAR-10 cached at `/vol/cifar10`
 
+## Fixed Surface
+Treat these parts of the file as fixed infrastructure unless a change is directly required by the experiment:
+- CLI parsing and supported flags
+- final JSON output structure
+- trial / warmup control flow
+- benchmark timing semantics
+
+Do not casually rewrite the wrapper, the main entrypoint, or the reporting contract.
+
+## Good Experiment Families
+Prefer experiments drawn from a clear family such as:
+- optimizer design and hyperparameters
+- learning-rate schedule and total training budget
+- batch sizes and throughput-related settings
+- precision and compile policy
+- augmentation and TTA implementation
+- model width, depth, or block structure
+- data preprocessing and caching
+
+Choose one family at a time and make one coherent experiment within it.
+
 ## Editing Guidance
 - Simpler is better.
-- Prefer small, local, defensible edits over broad rewrites.
-- Do not rewrite unrelated sections without a clear reason.
+- `candidate.py` is the research surface, but not every line is equally likely to matter. Focus on the training system and evaluation path, not the wrapper.
+- Make one coherent experimental revision at a time. A good experiment may require coordinated changes in multiple parts of the file.
+- Do not make scattered unrelated tweaks. The edit should reflect a clear technical hypothesis about why the program will become faster or more accurate.
 - Preserve the AirBench-style benchmark semantics; do not fake metrics or skip training.
 - Keep the program readable.
 - A tiny gain that adds ugly complexity is usually not worth it.

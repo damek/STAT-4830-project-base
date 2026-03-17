@@ -43,6 +43,7 @@ DEFAULT_RUN_ROOT = REPO_ROOT / "data" / "airbench" / "autoresearch_runs"
 DEFAULT_CANDIDATE_PATH = Path(__file__).with_name("candidate.py")
 DEFAULT_PROGRAM_PATH = Path(__file__).with_name("program.md")
 DEFAULT_MEMORY_PATH = Path(__file__).with_name("memory.md")
+DEFAULT_RECORD_PATH = Path(__file__).with_name("incumbent_record.json")
 
 
 def parse_args() -> argparse.Namespace:
@@ -50,6 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--candidate-path", type=Path, default=DEFAULT_CANDIDATE_PATH)
     parser.add_argument("--program-path", type=Path, default=DEFAULT_PROGRAM_PATH)
     parser.add_argument("--memory-path", type=Path, default=DEFAULT_MEMORY_PATH)
+    parser.add_argument("--incumbent-record-path", type=Path, default=DEFAULT_RECORD_PATH)
     parser.add_argument(
         "--run-dir",
         type=Path,
@@ -59,7 +61,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-attempts", type=int, default=10)
     parser.add_argument("--target-accuracy", type=float, default=94.0)
     parser.add_argument("--proxy-trials", type=int, default=1)
-    parser.add_argument("--strict-trials", type=int, default=3)
+    parser.add_argument("--strict-trials", type=int, default=5)
     parser.add_argument("--warmup-trials", type=int, default=1)
     parser.add_argument("--timeout-seconds", type=int, default=60 * 15)
     parser.add_argument(
@@ -90,6 +92,8 @@ def main() -> int:
         raise FileNotFoundError(f"Program instructions not found: {args.program_path}")
     if not args.memory_path.exists():
         raise FileNotFoundError(f"Memory file not found: {args.memory_path}")
+    if not args.incumbent_record_path.exists():
+        raise FileNotFoundError(f"Incumbent record not found: {args.incumbent_record_path}")
 
     proxy_cfg = AirbenchEvalConfig(
         target_accuracy=normalize_target_accuracy(args.target_accuracy),
@@ -107,6 +111,7 @@ def main() -> int:
         candidate_path=args.candidate_path,
         program_path=args.program_path,
         memory_path=args.memory_path,
+        incumbent_record_path=args.incumbent_record_path,
         run_dir=args.run_dir,
         model=args.model,
         max_attempts=args.max_attempts,

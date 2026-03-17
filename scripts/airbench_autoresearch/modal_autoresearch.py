@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import os
 from dataclasses import replace
@@ -72,6 +71,7 @@ DEFAULT_RUN_ROOT = REPO_ROOT / "data" / "airbench" / "autoresearch_runs"
 DEFAULT_CANDIDATE_PATH = Path(__file__).with_name("candidate.py")
 DEFAULT_PROGRAM_PATH = Path(__file__).with_name("program.md")
 DEFAULT_MEMORY_PATH = Path(__file__).with_name("memory.md")
+DEFAULT_RECORD_PATH = Path(__file__).with_name("incumbent_record.json")
 REMOTE_RUN_ROOT = "/vol/autoresearch_runs"
 APP_NAME = "airbench-autoresearch"
 
@@ -135,6 +135,7 @@ def run_autoresearch_loop_remote(
     initial_candidate_code: str,
     initial_program_text: str,
     initial_memory_text: str,
+    initial_record_text: str,
     model: str,
     max_attempts: int,
     target_accuracy: float,
@@ -152,9 +153,11 @@ def run_autoresearch_loop_remote(
     candidate_path = run_dir / "candidate.py"
     program_path = run_dir / "program.md"
     memory_path = run_dir / "memory.md"
+    record_path = run_dir / "incumbent_record.json"
     candidate_path.write_text(initial_candidate_code, encoding="utf-8")
     program_path.write_text(initial_program_text, encoding="utf-8")
     memory_path.write_text(initial_memory_text, encoding="utf-8")
+    record_path.write_text(initial_record_text, encoding="utf-8")
 
     proxy_cfg = AirbenchEvalConfig(
         target_accuracy=normalize_target_accuracy(target_accuracy),
@@ -178,6 +181,7 @@ def run_autoresearch_loop_remote(
         candidate_path=candidate_path,
         program_path=program_path,
         memory_path=memory_path,
+        incumbent_record_path=record_path,
         run_dir=run_dir,
         model=model,
         max_attempts=max_attempts,
@@ -203,15 +207,22 @@ def _volume_run_dir(run_name: str) -> str:
     return f"/{run_name}"
 
 
-async def _read_volume_file(path: str) -> bytes:
-    chunks: list[bytes] = []
-    async for chunk in autoresearch_volume.read_file(path):
-        chunks.append(chunk)
-    return b"".join(chunks)
+def _read_volume_file(path: str) -> bytes:
+    stream = autoresearch_volume.read_file(path)
+    if hasattr(stream, "__aiter__"):
+        async def _collect_async() -> bytes:
+            chunks: list[bytes] = []
+            async for chunk in stream:  # type: ignore[union-attr]
+                chunks.append(chunk)
+            return b"".join(chunks)
+
+        import asyncio
+
+        return asyncio.run(_collect_async())
+    return b"".join(stream)
 
 
 def _sync_run_from_volume(run_name: str, local_root: Path) -> Path:
-    autoresearch_volume.reload()
     remote_root = _volume_run_dir(run_name)
     entries = autoresearch_volume.listdir(remote_root, recursive=True)
     if not entries:
@@ -230,7 +241,7 @@ def _sync_run_from_volume(run_name: str, local_root: Path) -> Path:
             destination.mkdir(parents=True, exist_ok=True)
             continue
         destination.parent.mkdir(parents=True, exist_ok=True)
-        payload = asyncio.run(_read_volume_file(entry.path))
+        payload = _read_volume_file(entry.path)
         destination.write_bytes(payload)
     return local_run_dir
 
@@ -241,7 +252,7 @@ def launch(
     model: str = "gemini/gemini-3.1-flash-lite-preview",
     target_accuracy: float = 94.0,
     proxy_trials: int = 1,
-    strict_trials: int = 3,
+    strict_trials: int = 5,
     warmup_trials: int = 1,
     timeout_seconds: int = 60 * 15,
     final_strict_eval: bool = False,
@@ -256,6 +267,7 @@ def launch(
         initial_candidate_code=DEFAULT_CANDIDATE_PATH.read_text(encoding="utf-8"),
         initial_program_text=DEFAULT_PROGRAM_PATH.read_text(encoding="utf-8"),
         initial_memory_text=DEFAULT_MEMORY_PATH.read_text(encoding="utf-8"),
+        initial_record_text=DEFAULT_RECORD_PATH.read_text(encoding="utf-8"),
         model=model,
         max_attempts=max_attempts,
         target_accuracy=target_accuracy,
@@ -304,6 +316,9 @@ def pull(
             DEFAULT_CANDIDATE_PATH.write_text(incumbent_path.read_text(encoding="utf-8"), encoding="utf-8")
         if memory_path.exists():
             DEFAULT_MEMORY_PATH.write_text(memory_path.read_text(encoding="utf-8"), encoding="utf-8")
+        record_path = local_run_dir / "incumbent_record.json"
+        if record_path.exists():
+            DEFAULT_RECORD_PATH.write_text(record_path.read_text(encoding="utf-8"), encoding="utf-8")
     print(
         json.dumps(
             {

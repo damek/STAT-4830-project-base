@@ -115,7 +115,7 @@ def main() -> int:
 
     trials = args.trials
     if trials is None:
-        trials = 1 if args.mode == "proxy" else 3
+        trials = 1 if args.mode == "proxy" else 5
 
     eval_cfg = AirbenchEvalConfig(
         target_accuracy=normalize_target_accuracy(args.target_accuracy),

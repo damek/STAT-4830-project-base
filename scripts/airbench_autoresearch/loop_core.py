@@ -8,9 +8,12 @@ import hashlib
 import json
 import os
 import re
+import subprocess
+import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Callable
 
 def load_dotenv(path: Path) -> list[str]:
@@ -78,6 +81,55 @@ def extract_summary_and_code(raw_text: str) -> tuple[str, str]:
     return summary, code
 
 
+REQUIRED_CLI_FLAGS = (
+    "--data-dir",
+    "--trials",
+    "--warmup-trials",
+    "--target-accuracy",
+    "--json-only",
+    "--preflight",
+    "--verbose",
+)
+
+REQUIRED_JSON_KEYS = (
+    "mean_accuracy",
+    "mean_time_seconds",
+    "trials",
+)
+
+
+def validate_candidate_contract(code: str) -> str | None:
+    missing_json_keys = [key for key in REQUIRED_JSON_KEYS if f'"{key}"' not in code and f"'{key}'" not in code]
+    if missing_json_keys:
+        return f"missing required JSON keys: {', '.join(missing_json_keys)}"
+
+    with TemporaryDirectory(prefix="airbench_contract_") as tmpdir:
+        candidate_path = Path(tmpdir) / "candidate.py"
+        candidate_path.write_text(code, encoding="utf-8")
+        try:
+            completed = subprocess.run(
+                [sys.executable, str(candidate_path), "--help"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except Exception as exc:
+            return f"--help invocation failed: {exc}"
+
+        if completed.returncode != 0:
+            tail = (completed.stderr or completed.stdout).strip()
+            tail = tail[-400:] if tail else f"exit code {completed.returncode}"
+            return f"--help failed: {tail}"
+
+        help_text = (completed.stdout or "") + "\n" + (completed.stderr or "")
+        missing_flags = [flag for flag in REQUIRED_CLI_FLAGS if flag not in help_text]
+        if missing_flags:
+            return f"missing required CLI flags: {', '.join(missing_flags)}"
+
+    return None
+
+
 def build_results_writer(path: Path) -> csv.DictWriter:
     path.parent.mkdir(parents=True, exist_ok=True)
     handle = path.open("w", encoding="utf-8", newline="")
@@ -129,6 +181,94 @@ def eval_row(result: Any, *, attempt: int, phase: str, status: str, candidate_sh
         "remote_runtime_seconds": side.get("remote_runtime_seconds"),
         "change_summary": change_summary,
     }
+
+
+CORE_RESULT_FIELDS = {
+    "score",
+    "valid",
+    "failure_type",
+    "message",
+    "runtime_seconds",
+    "mean_accuracy",
+    "mean_time_seconds",
+    "trials",
+    "stdout_tail",
+    "stderr_tail",
+}
+
+
+@dataclass(frozen=True)
+class RecordedEvalResult:
+    score: float
+    valid: bool
+    failure_type: str | None
+    message: str
+    runtime_seconds: float
+    mean_accuracy: float | None
+    mean_time_seconds: float | None
+    trials: int | None
+    stdout_tail: str
+    stderr_tail: str
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def as_side_info(self) -> dict[str, Any]:
+        payload = {
+            "score": self.score,
+            "valid": self.valid,
+            "failure_type": self.failure_type,
+            "message": self.message,
+            "runtime_seconds": self.runtime_seconds,
+            "mean_accuracy": self.mean_accuracy,
+            "mean_time_seconds": self.mean_time_seconds,
+            "trials": self.trials,
+            "stdout_tail": self.stdout_tail,
+            "stderr_tail": self.stderr_tail,
+        }
+        payload.update(self.extra)
+        return payload
+
+
+def _recorded_result_from_payload(payload: dict[str, Any]) -> RecordedEvalResult:
+    extra = {key: value for key, value in payload.items() if key not in CORE_RESULT_FIELDS}
+    return RecordedEvalResult(
+        score=float(payload["score"]),
+        valid=bool(payload["valid"]),
+        failure_type=payload.get("failure_type"),
+        message=str(payload.get("message", "")),
+        runtime_seconds=float(payload.get("runtime_seconds") or 0.0),
+        mean_accuracy=float(payload["mean_accuracy"]) if payload.get("mean_accuracy") is not None else None,
+        mean_time_seconds=float(payload["mean_time_seconds"]) if payload.get("mean_time_seconds") is not None else None,
+        trials=int(payload["trials"]) if payload.get("trials") is not None else None,
+        stdout_tail=str(payload.get("stdout_tail", "")),
+        stderr_tail=str(payload.get("stderr_tail", "")),
+        extra=extra,
+    )
+
+
+def serialize_incumbent_record(candidate_sha: str, proxy_result: Any, strict_result: Any) -> dict[str, Any]:
+    return {
+        "candidate_sha256": candidate_sha,
+        "proxy": proxy_result.as_side_info(),
+        "strict": strict_result.as_side_info(),
+    }
+
+
+def load_incumbent_record(record_path: Path, expected_sha: str) -> tuple[RecordedEvalResult, RecordedEvalResult]:
+    if not record_path.exists():
+        raise FileNotFoundError(
+            f"incumbent record not found at {record_path}; refusing to revalidate initial incumbent"
+        )
+    payload = json.loads(record_path.read_text(encoding="utf-8"))
+    recorded_sha = str(payload.get("candidate_sha256", "")).strip()
+    if recorded_sha != expected_sha:
+        raise ValueError(
+            "incumbent record hash mismatch; candidate.py does not match the validated incumbent-of-record"
+        )
+    proxy_payload = payload.get("proxy")
+    strict_payload = payload.get("strict")
+    if not isinstance(proxy_payload, dict) or not isinstance(strict_payload, dict):
+        raise ValueError(f"invalid incumbent record structure in {record_path}")
+    return _recorded_result_from_payload(proxy_payload), _recorded_result_from_payload(strict_payload)
 
 
 def is_better(new: Any, old: Any) -> bool:
@@ -199,7 +339,11 @@ def build_prompt(*, program_text: str, memory_text: str, candidate_code: str, re
     ) or "- no recent attempts"
     system = (
         "You are improving one Python training script in a keep/discard experiment loop. "
-        "Return one small, defensible edit to the current file. Prefer simplicity and local edits. "
+        "Return one coherent experimental revision to the current file. "
+        "The editable research surface is the training system: optimizer, schedule, batch sizes, precision/compile policy, augmentation/TTA, architecture, and data path choices. "
+        "Treat the CLI wrapper, required flags, JSON output contract, and benchmark timing/reporting semantics as fixed infrastructure unless the experiment directly depends on them. "
+        "The changes should reflect a single clear technical hypothesis rather than random unrelated tweaks. "
+        "Preserve the benchmark contract and keep the program readable. "
         "Do not return explanations after the code. Respond with exactly two parts: "
         "a first line 'SUMMARY: ...' followed by one fenced Python code block containing the full updated file."
     )
@@ -208,7 +352,7 @@ def build_prompt(*, program_text: str, memory_text: str, candidate_code: str, re
         f"Current memory:\n{memory_text}\n\n"
         f"Recent attempts:\n{recent_text}\n\n"
         f"Current candidate.py:\n```python\n{candidate_code}\n```\n\n"
-        "Produce a revised full file. Prefer a small, local edit unless a broader rewrite is truly necessary."
+        "Produce a revised full file. Make one intentional experiment that is well matched to the task and recent evidence, and keep the wrapper contract intact."
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
@@ -242,6 +386,7 @@ class AutoresearchLoopConfig:
     candidate_path: Path
     program_path: Path
     memory_path: Path
+    incumbent_record_path: Path
     run_dir: Path
     model: str
     max_attempts: int
@@ -291,49 +436,42 @@ def run_autoresearch_loop(
         write_json(config.run_dir / "summary.json", payload)
 
     try:
-        logger("[loop] evaluating incumbent seed candidate")
-        incumbent_proxy_result = evaluate_proxy(incumbent_code)
+        logger("[loop] loading incumbent-of-record")
+        incumbent_proxy_result, incumbent_strict_result = load_incumbent_record(
+            config.incumbent_record_path,
+            incumbent_sha,
+        )
+        incumbent_record_payload = serialize_incumbent_record(
+            incumbent_sha,
+            incumbent_proxy_result,
+            incumbent_strict_result,
+        )
+        write_json(config.run_dir / "incumbent_record.json", incumbent_record_payload)
         seed_proxy_row = eval_row(
             incumbent_proxy_result,
             attempt=0,
-            phase="baseline_proxy",
-            status="keep",
+            phase="baseline_proxy_record",
+            status="loaded",
             candidate_sha=incumbent_sha,
             parent_sha="",
-            change_summary="initial seed candidate",
+            change_summary="loaded validated incumbent proxy record",
         )
         results_writer.writerow(seed_proxy_row)
         getattr(results_writer, "_handle").flush()  # type: ignore[attr-defined]
         all_rows.append(seed_proxy_row)
-        write_json(config.run_dir / "seed_proxy_eval.json", incumbent_proxy_result.as_side_info())
-        if is_infra_failure(incumbent_proxy_result):
-            rejected_rows.append(seed_proxy_row)
-            logger("[loop] baseline proxy failed due to gpu_mismatch; aborting run")
-            update_memory(config.memory_path, incumbent_proxy_result, accepted_rows, rejected_rows)
-            write_partial_summary(incumbent_proxy=incumbent_proxy_result, incumbent_strict=None, infra_failures=1)
-            return 1
-
-        logger("[loop] verifying incumbent seed candidate with strict eval")
-        incumbent_strict_result = evaluate_strict(incumbent_code)
         seed_strict_row = eval_row(
             incumbent_strict_result,
             attempt=0,
-            phase="baseline_strict",
-            status="verified",
+            phase="baseline_strict_record",
+            status="loaded",
             candidate_sha=incumbent_sha,
             parent_sha="",
-            change_summary="initial seed candidate strict verification",
+            change_summary="loaded validated incumbent strict record",
         )
         results_writer.writerow(seed_strict_row)
         getattr(results_writer, "_handle").flush()  # type: ignore[attr-defined]
         all_rows.append(seed_strict_row)
         accepted_rows.append(seed_strict_row)
-        write_json(config.run_dir / "seed_strict_eval.json", incumbent_strict_result.as_side_info())
-        if is_infra_failure(incumbent_strict_result):
-            logger("[loop] baseline strict failed due to gpu_mismatch; aborting run")
-            update_memory(config.memory_path, incumbent_proxy_result, accepted_rows, rejected_rows)
-            write_partial_summary(incumbent_proxy=incumbent_proxy_result, incumbent_strict=incumbent_strict_result, infra_failures=1)
-            return 1
         (config.run_dir / "incumbent.py").write_text(incumbent_code, encoding="utf-8")
         update_memory(config.memory_path, incumbent_strict_result, accepted_rows, rejected_rows)
 
@@ -439,6 +577,33 @@ def run_autoresearch_loop(
                 update_memory(config.memory_path, incumbent_strict_result, accepted_rows, rejected_rows)
                 continue
 
+            contract_error = validate_candidate_contract(proposed_code)
+            if contract_error is not None:
+                contract_row = {
+                    "attempt": attempt,
+                    "phase": "proxy",
+                    "status": "crash",
+                    "candidate_sha256": proposed_sha,
+                    "parent_sha256": incumbent_sha,
+                    "valid": False,
+                    "meets_target": False,
+                    "mean_accuracy": None,
+                    "mean_time_seconds": None,
+                    "score": 0.0,
+                    "failure_type": "contract_error",
+                    "actual_device_name": None,
+                    "runtime_seconds": 0.0,
+                    "remote_runtime_seconds": None,
+                    "change_summary": f"{summary} | contract error: {contract_error}",
+                }
+                results_writer.writerow(contract_row)
+                getattr(results_writer, "_handle").flush()  # type: ignore[attr-defined]
+                rejected_rows.append(contract_row)
+                all_rows.append(contract_row)
+                logger(f"[loop] attempt {attempt}: crash before eval (contract error)")
+                update_memory(config.memory_path, incumbent_strict_result, accepted_rows, rejected_rows)
+                continue
+
             config.candidate_path.write_text(proposed_code, encoding="utf-8")
             logger(f"[loop] attempt {attempt}: running proxy eval")
             proposed_result = evaluate_proxy(proposed_code)
@@ -532,6 +697,13 @@ def run_autoresearch_loop(
                     )
                     accepted_rows.append(strict_row)
                     (config.run_dir / "incumbent.py").write_text(incumbent_code, encoding="utf-8")
+                    incumbent_record_payload = serialize_incumbent_record(
+                        incumbent_sha,
+                        incumbent_proxy_result,
+                        incumbent_strict_result,
+                    )
+                    write_json(config.incumbent_record_path, incumbent_record_payload)
+                    write_json(config.run_dir / "incumbent_record.json", incumbent_record_payload)
                     logger(
                         f"[loop] attempt {attempt}: keep after strict confirm "
                         f"acc={proposed_strict_result.mean_accuracy} time={proposed_strict_result.mean_time_seconds}"

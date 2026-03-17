@@ -6,6 +6,7 @@ Files:
 - `candidate.py`: the only mutable training program
 - `program.md`: high-level optimization instructions
 - `memory.md`: short rolling memory updated by the loop
+- `incumbent_record.json`: validated incumbent-of-record used to skip baseline revalidation
 - `loop_core.py`: shared keep/discard loop logic
 - `run_candidate.py`: evaluate the current candidate
 - `run_loop.py`: propose -> evaluate -> keep/revert loop
@@ -72,7 +73,8 @@ python scripts/airbench_autoresearch/plot_progress.py \
 Notes:
 - `candidate.py` is restored to the best incumbent after rejected attempts.
 - Results are written under `data/airbench/autoresearch_runs/<timestamp>/`.
-- The loop uses a cheap proxy evaluation during search, but any proxy improvement is promoted only after a strict confirmation run.
+- The loop does not revalidate the starting incumbent on every run; it loads `incumbent_record.json` as the validated incumbent-of-record.
+- The loop uses a cheap proxy evaluation during search, but any proxy improvement is promoted only after a stronger strict confirmation run.
 - The optional final strict evaluation is mostly redundant now and can usually be disabled for longer runs.
 - The Modal-hosted loop writes artifacts to a Modal Volume first; use `::pull` to sync them back into the local workspace.
 - The Codex CLI harness keeps proposal generation local and deterministic scoring in Python; it writes run artifacts under `data/airbench/codex_cli_runs/<timestamp>/`.
