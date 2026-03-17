@@ -65,6 +65,24 @@ class EditableSectionSpec:
     description: str
 
 
+@dataclass(frozen=True)
+class WorkerBrief:
+    title: str
+    section: str
+    family: str
+    hypothesis: str
+    instructions: str
+
+    def prompt_text(self) -> str:
+        return (
+            f"title: {self.title}\n"
+            f"section: {self.section}\n"
+            f"family: {self.family}\n"
+            f"hypothesis: {self.hypothesis}\n"
+            f"instructions: {self.instructions}"
+        )
+
+
 SECTION_SPECS = (
     EditableSectionSpec(
         name="optimizer_core",
@@ -214,6 +232,12 @@ def extract_summary_section_and_code(raw_text: str) -> tuple[str, str, str]:
     if not code:
         raise ValueError("model response did not include candidate code")
     return summary, section_name, code
+
+
+def _extract_json_payload(raw_text: str) -> Any:
+    fence_match = re.search(r"```(?:json)?\s*(.*?)```", raw_text, flags=re.DOTALL | re.IGNORECASE)
+    candidate = fence_match.group(1).strip() if fence_match else raw_text.strip()
+    return json.loads(candidate)
 
 
 REQUIRED_JSON_KEYS = (
@@ -448,6 +472,7 @@ def build_prompt(
     memory_text: str,
     candidate_code: str,
     recent_rows: list[dict[str, Any]],
+    worker_brief: WorkerBrief | None = None,
 ) -> list[dict[str, str]]:
     recent_text = "\n".join(
         f"- attempt {row['attempt']} [{row['status']}]: acc={row.get('mean_accuracy')} time={row.get('mean_time_seconds')} failure={row.get('failure_type')} summary={row.get('change_summary')}"
@@ -470,7 +495,12 @@ def build_prompt(
         f"Current memory:\n{memory_text}\n\n"
         f"Recent attempts:\n{recent_text}\n\n"
         f"Editable sections:\n{section_inventory_text(candidate_code)}\n\n"
-        "Produce one section replacement only. Pick the section that best matches the experiment you want to run, and leave all other sections untouched."
+        + (
+            f"Assigned worker brief:\n{worker_brief.prompt_text()}\n\n"
+            if worker_brief is not None
+            else ""
+        )
+        + "Produce one section replacement only. Pick the section that best matches the experiment you want to run, and leave all other sections untouched."
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
@@ -483,6 +513,7 @@ def propose_candidate(
     memory_text: str,
     candidate_code: str,
     recent_rows: list[dict[str, Any]],
+    worker_brief: WorkerBrief | None = None,
 ) -> tuple[str, str, str]:
     import litellm
 
@@ -492,15 +523,102 @@ def propose_candidate(
         memory_text=memory_text,
         candidate_code=candidate_code,
         recent_rows=recent_rows,
+        worker_brief=worker_brief,
     )
     response = litellm.completion(model=model, messages=messages)
     raw_text = response.choices[0].message.content or ""
     summary, section_name, replacement_code = extract_summary_section_and_code(raw_text)
+    if worker_brief is not None and section_name != worker_brief.section:
+        raise ValueError(
+            f"worker brief required section {worker_brief.section!r}, but model returned {section_name!r}"
+        )
     replacement_error = _validate_section_replacement(section_name, replacement_code, candidate_code)
     if replacement_error is not None:
         raise ValueError(replacement_error)
     updated_code = apply_section_edit(candidate_code, section_name, replacement_code)
     return f"[{section_name}] {summary}", updated_code, raw_text
+
+
+def build_worker_briefs_prompt(
+    *,
+    program_text: str,
+    strategy_text: str,
+    memory_text: str,
+    candidate_code: str,
+    recent_rows: list[dict[str, Any]],
+    worker_count: int,
+) -> list[dict[str, str]]:
+    recent_text = "\n".join(
+        f"- attempt {row['attempt']} [{row['status']}]: acc={row.get('mean_accuracy')} time={row.get('mean_time_seconds')} failure={row.get('failure_type')} summary={row.get('change_summary')}"
+        for row in recent_rows[-10:]
+    ) or "- no recent attempts"
+    allowed_sections = "\n".join(f"- {spec.name}: {spec.description}" for spec in SECTION_SPECS)
+    system = (
+        "You are coordinating a batch of parallel autoresearch workers. "
+        "Return a JSON array of exactly "
+        f"{worker_count} worker briefs. "
+        "Each brief must define one distinct experiment. "
+        "Every brief must contain keys: title, section, family, hypothesis, instructions. "
+        "section must be one of the allowed sections. "
+        "Make the briefs meaningfully different; do not issue five variations of the same scalar tweak unless recent evidence strongly demands it. "
+        "Keep each brief short, concrete, and technically coherent."
+    )
+    user = (
+        f"Program instructions:\n{program_text}\n\n"
+        f"Current strategy:\n{strategy_text}\n\n"
+        f"Current memory:\n{memory_text}\n\n"
+        f"Recent attempts:\n{recent_text}\n\n"
+        f"Allowed sections:\n{allowed_sections}\n\n"
+        f"Current editable sections:\n{section_inventory_text(candidate_code)}\n\n"
+        "Return only the JSON array."
+    )
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def propose_worker_briefs(
+    *,
+    model: str,
+    program_text: str,
+    strategy_text: str,
+    memory_text: str,
+    candidate_code: str,
+    recent_rows: list[dict[str, Any]],
+    worker_count: int,
+) -> tuple[list[WorkerBrief], str]:
+    import litellm
+
+    messages = build_worker_briefs_prompt(
+        program_text=program_text,
+        strategy_text=strategy_text,
+        memory_text=memory_text,
+        candidate_code=candidate_code,
+        recent_rows=recent_rows,
+        worker_count=worker_count,
+    )
+    response = litellm.completion(model=model, messages=messages)
+    raw_text = response.choices[0].message.content or ""
+    payload = _extract_json_payload(raw_text)
+    if not isinstance(payload, list) or len(payload) != worker_count:
+        raise ValueError(f"expected JSON array of {worker_count} worker briefs")
+
+    briefs: list[WorkerBrief] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            raise ValueError("worker brief entries must be objects")
+        section = str(item.get("section", "")).strip()
+        if section not in SECTION_SPECS_BY_NAME:
+            raise ValueError(f"worker brief used unknown section {section!r}")
+        brief = WorkerBrief(
+            title=str(item.get("title", "")).strip(),
+            section=section,
+            family=str(item.get("family", "")).strip(),
+            hypothesis=str(item.get("hypothesis", "")).strip(),
+            instructions=str(item.get("instructions", "")).strip(),
+        )
+        if not all((brief.title, brief.family, brief.hypothesis, brief.instructions)):
+            raise ValueError("worker brief fields must be non-empty")
+        briefs.append(brief)
+    return briefs, raw_text
 
 
 def build_strategy_prompt(

@@ -66,6 +66,16 @@ modal run --detach scripts/airbench_autoresearch/modal_autoresearch.py::launch \
   --strategy-rounds 3
 ```
 
+Parallel batch coordinator with five workers per round:
+
+```bash
+modal run --detach scripts/airbench_autoresearch/modal_autoresearch.py::launch \
+  --max-attempts 5 \
+  --parallel-workers 5 \
+  --strict-top-k 2 \
+  --strategy-rounds 4
+```
+
 Wait for the detached/background run to finish, then sync its artifacts and apply the new incumbent:
 
 ```bash
@@ -86,6 +96,8 @@ Notes:
 - The loop does not revalidate the starting incumbent on every run; it loads `incumbent_record.json` as the validated incumbent-of-record.
 - The loop uses a cheap proxy evaluation during search, but any proxy improvement is promoted only after a stronger strict confirmation run.
 - If `--strategy-rounds > 1`, the outer loop rewrites `strategy.md` between batches while the inner loop continues editing `candidate.py`.
+- If `--parallel-workers > 1`, the Modal launcher uses a CPU coordinator that proposes a batch of section edits and evaluates them on separate `A100-40GB` jobs in parallel.
+- Parallel batch mode currently expects `--max-attempts` to equal `--parallel-workers`, so one round corresponds to one parallel batch.
 - The optional final strict evaluation is mostly redundant now and can usually be disabled for longer runs.
 - The Modal-hosted loop writes artifacts to a Modal Volume first; use `::pull` to sync them back into the local workspace.
 - The Codex CLI harness keeps proposal generation local and deterministic scoring in Python; it writes run artifacts under `data/airbench/codex_cli_runs/<timestamp>/`.

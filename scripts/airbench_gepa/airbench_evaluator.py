@@ -119,69 +119,15 @@ def _build_result(
     )
 
 
-def evaluate_solver_code(
-    solver_code: str,
+def eval_result_from_remote_response(
+    remote_result: dict[str, Any] | None,
+    *,
     config: AirbenchEvalConfig,
-    remote_runner: RemoteRunner,
+    elapsed: float,
+    last_remote_exception: Exception | None = None,
+    mismatch_attempts: int = 0,
 ) -> AirbenchEvalResult:
-    started_at = time.time()
-
-    if not solver_code or not solver_code.strip():
-        return _build_result(
-            score=0.0,
-            valid=False,
-            failure_type="empty_solver",
-            message="empty solver code",
-            runtime_seconds=0.0,
-            mean_accuracy=None,
-            mean_time_seconds=None,
-            trials=None,
-            stdout_tail="",
-            stderr_tail="",
-        )
-
-    try:
-        compile(solver_code, "<candidate>", "exec")
-    except SyntaxError as exc:
-        return _build_result(
-            score=0.0,
-            valid=False,
-            failure_type="syntax_error",
-            message=f"syntax error: {exc}",
-            runtime_seconds=0.0,
-            mean_accuracy=None,
-            mean_time_seconds=None,
-            trials=None,
-            stdout_tail="",
-            stderr_tail="",
-        )
-
-    remote_result: dict[str, Any] | None = None
-    last_remote_exception: Exception | None = None
-    mismatch_attempts = 0
-    max_attempts = max(1, config.gpu_mismatch_retries + 1)
-    for attempt_idx in range(1, max_attempts + 1):
-        try:
-            remote_result = remote_runner.remote(
-                solver_code=solver_code,
-                script_args=build_script_args(config),
-                timeout_seconds=config.timeout_seconds,
-                print_subprocess_logs=config.stream_subprocess_logs,
-            )
-        except Exception as exc:
-            last_remote_exception = exc
-            remote_result = None
-            break
-
-        if remote_result.get("failure_type") != "gpu_mismatch":
-            break
-
-        mismatch_attempts = attempt_idx
-        if attempt_idx >= max_attempts:
-            break
-
     if remote_result is None:
-        elapsed = time.time() - started_at
         return _build_result(
             score=0.0,
             valid=False,
@@ -195,7 +141,6 @@ def evaluate_solver_code(
             stderr_tail="",
         )
 
-    elapsed = time.time() - started_at
     stdout_tail = str(remote_result.get("stdout_tail", ""))
     stderr_tail = str(remote_result.get("stderr_tail", ""))
 
@@ -297,8 +242,6 @@ def evaluate_solver_code(
     accuracy_margin = mean_accuracy - target_accuracy
     meets_target = mean_accuracy >= target_accuracy
     inverse_time = 1.0 / mean_time_seconds
-
-    # Lexicographic scoring: hit the target first, then optimize runtime.
     score = 1000.0 + inverse_time if meets_target else mean_accuracy
     message = (
         f"mean_accuracy={mean_accuracy:.4f} "
@@ -332,4 +275,75 @@ def evaluate_solver_code(
             },
             "remote_runtime_seconds": remote_result.get("runtime_seconds"),
         },
+    )
+
+
+def evaluate_solver_code(
+    solver_code: str,
+    config: AirbenchEvalConfig,
+    remote_runner: RemoteRunner,
+) -> AirbenchEvalResult:
+    started_at = time.time()
+
+    if not solver_code or not solver_code.strip():
+        return _build_result(
+            score=0.0,
+            valid=False,
+            failure_type="empty_solver",
+            message="empty solver code",
+            runtime_seconds=0.0,
+            mean_accuracy=None,
+            mean_time_seconds=None,
+            trials=None,
+            stdout_tail="",
+            stderr_tail="",
+        )
+
+    try:
+        compile(solver_code, "<candidate>", "exec")
+    except SyntaxError as exc:
+        return _build_result(
+            score=0.0,
+            valid=False,
+            failure_type="syntax_error",
+            message=f"syntax error: {exc}",
+            runtime_seconds=0.0,
+            mean_accuracy=None,
+            mean_time_seconds=None,
+            trials=None,
+            stdout_tail="",
+            stderr_tail="",
+        )
+
+    remote_result: dict[str, Any] | None = None
+    last_remote_exception: Exception | None = None
+    mismatch_attempts = 0
+    max_attempts = max(1, config.gpu_mismatch_retries + 1)
+    for attempt_idx in range(1, max_attempts + 1):
+        try:
+            remote_result = remote_runner.remote(
+                solver_code=solver_code,
+                script_args=build_script_args(config),
+                timeout_seconds=config.timeout_seconds,
+                print_subprocess_logs=config.stream_subprocess_logs,
+            )
+        except Exception as exc:
+            last_remote_exception = exc
+            remote_result = None
+            break
+
+        if remote_result.get("failure_type") != "gpu_mismatch":
+            break
+
+        mismatch_attempts = attempt_idx
+        if attempt_idx >= max_attempts:
+            break
+
+    elapsed = time.time() - started_at
+    return eval_result_from_remote_response(
+        remote_result,
+        config=config,
+        elapsed=elapsed,
+        last_remote_exception=last_remote_exception,
+        mismatch_attempts=mismatch_attempts,
     )
