@@ -47,7 +47,7 @@ if __package__ in (None, ""):
         ensure_auth,
         load_dotenv,
         normalize_target_accuracy,
-        run_autoresearch_loop,
+        run_meta_autoresearch_loop,
     )
 else:
     from ..airbench_gepa.airbench_evaluator import AirbenchEvalConfig, evaluate_solver_code
@@ -63,13 +63,14 @@ else:
         ensure_auth,
         load_dotenv,
         normalize_target_accuracy,
-        run_autoresearch_loop,
+        run_meta_autoresearch_loop,
     )
 
 DEFAULT_DOTENV_PATH = REPO_ROOT / ".env"
 DEFAULT_RUN_ROOT = REPO_ROOT / "data" / "airbench" / "autoresearch_runs"
 DEFAULT_CANDIDATE_PATH = Path(__file__).with_name("candidate.py")
 DEFAULT_PROGRAM_PATH = Path(__file__).with_name("program.md")
+DEFAULT_STRATEGY_PATH = Path(__file__).with_name("strategy.md")
 DEFAULT_MEMORY_PATH = Path(__file__).with_name("memory.md")
 DEFAULT_RECORD_PATH = Path(__file__).with_name("incumbent_record.json")
 REMOTE_RUN_ROOT = "/vol/autoresearch_runs"
@@ -134,9 +135,12 @@ def run_autoresearch_loop_remote(
     run_name: str,
     initial_candidate_code: str,
     initial_program_text: str,
+    initial_strategy_text: str,
     initial_memory_text: str,
     initial_record_text: str,
     model: str,
+    strategy_model: str | None,
+    strategy_rounds: int,
     max_attempts: int,
     target_accuracy: float,
     proxy_trials: int,
@@ -152,10 +156,12 @@ def run_autoresearch_loop_remote(
 
     candidate_path = run_dir / "candidate.py"
     program_path = run_dir / "program.md"
+    strategy_path = run_dir / "strategy.md"
     memory_path = run_dir / "memory.md"
     record_path = run_dir / "incumbent_record.json"
     candidate_path.write_text(initial_candidate_code, encoding="utf-8")
     program_path.write_text(initial_program_text, encoding="utf-8")
+    strategy_path.write_text(initial_strategy_text, encoding="utf-8")
     memory_path.write_text(initial_memory_text, encoding="utf-8")
     record_path.write_text(initial_record_text, encoding="utf-8")
 
@@ -180,14 +186,17 @@ def run_autoresearch_loop_remote(
     loop_cfg = AutoresearchLoopConfig(
         candidate_path=candidate_path,
         program_path=program_path,
+        strategy_path=strategy_path,
         memory_path=memory_path,
         incumbent_record_path=record_path,
         run_dir=run_dir,
         model=model,
         max_attempts=max_attempts,
         final_strict_eval=final_strict_eval,
+        strategy_rounds=strategy_rounds,
+        strategy_model=strategy_model,
     )
-    exit_code = run_autoresearch_loop(loop_cfg, evaluate_proxy, evaluate_strict, logger=print)
+    exit_code = run_meta_autoresearch_loop(loop_cfg, evaluate_proxy, evaluate_strict, logger=print)
     autoresearch_volume.commit()
 
     summary_path = run_dir / "summary.json"
@@ -250,6 +259,8 @@ def _sync_run_from_volume(run_name: str, local_root: Path) -> Path:
 def launch(
     max_attempts: int = 20,
     model: str = "gemini/gemini-3.1-flash-lite-preview",
+    strategy_model: str = "",
+    strategy_rounds: int = 1,
     target_accuracy: float = 94.0,
     proxy_trials: int = 1,
     strict_trials: int = 5,
@@ -261,14 +272,19 @@ def launch(
 ) -> None:
     load_dotenv(DEFAULT_DOTENV_PATH)
     ensure_auth(model)
+    if strategy_model:
+        ensure_auth(strategy_model)
     run_name = datetime.now().strftime("%Y%m%d_%H%M%S")
     kwargs = dict(
         run_name=run_name,
         initial_candidate_code=DEFAULT_CANDIDATE_PATH.read_text(encoding="utf-8"),
         initial_program_text=DEFAULT_PROGRAM_PATH.read_text(encoding="utf-8"),
+        initial_strategy_text=DEFAULT_STRATEGY_PATH.read_text(encoding="utf-8"),
         initial_memory_text=DEFAULT_MEMORY_PATH.read_text(encoding="utf-8"),
         initial_record_text=DEFAULT_RECORD_PATH.read_text(encoding="utf-8"),
         model=model,
+        strategy_model=strategy_model or None,
+        strategy_rounds=strategy_rounds,
         max_attempts=max_attempts,
         target_accuracy=target_accuracy,
         proxy_trials=proxy_trials,
@@ -316,6 +332,9 @@ def pull(
             DEFAULT_CANDIDATE_PATH.write_text(incumbent_path.read_text(encoding="utf-8"), encoding="utf-8")
         if memory_path.exists():
             DEFAULT_MEMORY_PATH.write_text(memory_path.read_text(encoding="utf-8"), encoding="utf-8")
+        strategy_path = local_run_dir / "strategy.md"
+        if strategy_path.exists():
+            DEFAULT_STRATEGY_PATH.write_text(strategy_path.read_text(encoding="utf-8"), encoding="utf-8")
         record_path = local_run_dir / "incumbent_record.json"
         if record_path.exists():
             DEFAULT_RECORD_PATH.write_text(record_path.read_text(encoding="utf-8"), encoding="utf-8")

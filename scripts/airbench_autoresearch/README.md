@@ -3,8 +3,9 @@
 Minimal `autoresearch`-style AirBench loop.
 
 Files:
-- `candidate.py`: the only mutable training program
+- `candidate.py`: the only mutable training program; the loop now edits one allowed section at a time
 - `program.md`: high-level optimization instructions
+- `strategy.md`: dynamic outer-loop strategy for the next batch of experiments
 - `memory.md`: short rolling memory updated by the loop
 - `incumbent_record.json`: validated incumbent-of-record used to skip baseline revalidation
 - `loop_core.py`: shared keep/discard loop logic
@@ -57,6 +58,14 @@ modal run --detach scripts/airbench_autoresearch/modal_autoresearch.py::launch \
   --max-attempts 20
 ```
 
+Two-layer strategy loop:
+
+```bash
+modal run --detach scripts/airbench_autoresearch/modal_autoresearch.py::launch \
+  --max-attempts 10 \
+  --strategy-rounds 3
+```
+
 Wait for the detached/background run to finish, then sync its artifacts and apply the new incumbent:
 
 ```bash
@@ -72,9 +81,11 @@ python scripts/airbench_autoresearch/plot_progress.py \
 
 Notes:
 - `candidate.py` is restored to the best incumbent after rejected attempts.
+- The inner loop no longer rewrites the full file. It proposes one replacement for an allowed section and the loop splices that section into the incumbent mechanically.
 - Results are written under `data/airbench/autoresearch_runs/<timestamp>/`.
 - The loop does not revalidate the starting incumbent on every run; it loads `incumbent_record.json` as the validated incumbent-of-record.
 - The loop uses a cheap proxy evaluation during search, but any proxy improvement is promoted only after a stronger strict confirmation run.
+- If `--strategy-rounds > 1`, the outer loop rewrites `strategy.md` between batches while the inner loop continues editing `candidate.py`.
 - The optional final strict evaluation is mostly redundant now and can usually be disabled for longer runs.
 - The Modal-hosted loop writes artifacts to a Modal Volume first; use `::pull` to sync them back into the local workspace.
 - The Codex CLI harness keeps proposal generation local and deterministic scoring in Python; it writes run artifacts under `data/airbench/codex_cli_runs/<timestamp>/`.

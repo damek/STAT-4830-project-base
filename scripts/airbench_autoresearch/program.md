@@ -1,6 +1,7 @@
 # AirBench Autoresearch Program
 
 You are editing exactly one mutable file: `candidate.py`.
+Within that file, you may edit exactly one allowed section at a time.
 
 The loop is simple:
 1. Establish the baseline with the current file.
@@ -42,13 +43,23 @@ The runtime environment is fixed:
 - CIFAR-10 cached at `/vol/cifar10`
 
 ## Fixed Surface
-Treat these parts of the file as fixed infrastructure unless a change is directly required by the experiment:
+Treat these parts of the file as fixed infrastructure:
 - CLI parsing and supported flags
 - final JSON output structure
 - trial / warmup control flow
 - benchmark timing semantics
+- whitening front-end dimensions and initialization invariants
 
 Do not casually rewrite the wrapper, the main entrypoint, or the reporting contract.
+
+## Allowed Editable Sections
+The loop will only accept one section replacement at a time. The allowed sections are:
+- `optimizer_core`: `zeropower_via_newtonschulz5` and `Muon`
+- `model_core`: `ConvGroup` and `CifarNet`
+- `eval_core`: `infer` and `evaluate`
+- `training_loop`: `run_single_trial` and `run_preflight`
+
+All other sections are preserved mechanically by the loop.
 
 ## Good Experiment Families
 Prefer experiments drawn from a clear family such as:
@@ -77,6 +88,7 @@ Choose one family at a time and make one coherent experiment within it.
 - Removing required CLI flags such as `--verbose`.
 - Compiled TTA patterns that trigger CUDAGraph overwrite errors.
 - Breaking the final JSON contract.
+- Partial whitening/front-end rewrites that change tensor shapes without a coherent end-to-end redesign.
 
 ## First Run
 - The baseline run is already established externally by the loop.

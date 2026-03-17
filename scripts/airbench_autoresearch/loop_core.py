@@ -4,17 +4,16 @@
 from __future__ import annotations
 
 import csv
+import ast
 import hashlib
 import json
 import os
 import re
-import subprocess
-import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import Any, Callable
+
 
 def load_dotenv(path: Path) -> list[str]:
     if not path.exists():
@@ -59,37 +58,163 @@ def text_sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def extract_summary_and_code(raw_text: str) -> tuple[str, str]:
+@dataclass(frozen=True)
+class EditableSectionSpec:
+    name: str
+    symbols: tuple[str, ...]
+    description: str
+
+
+SECTION_SPECS = (
+    EditableSectionSpec(
+        name="optimizer_core",
+        symbols=("zeropower_via_newtonschulz5", "Muon"),
+        description="optimizer math and Muon optimizer behavior",
+    ),
+    EditableSectionSpec(
+        name="model_core",
+        symbols=("ConvGroup", "CifarNet"),
+        description="model block structure and network forward/reset logic; keep whitening init unchanged",
+    ),
+    EditableSectionSpec(
+        name="eval_core",
+        symbols=("infer", "evaluate"),
+        description="TTA and evaluation implementation",
+    ),
+    EditableSectionSpec(
+        name="training_loop",
+        symbols=("run_single_trial", "run_preflight"),
+        description="training schedule, optimizer setup, batch size, and preflight logic",
+    ),
+)
+
+SECTION_SPECS_BY_NAME = {spec.name: spec for spec in SECTION_SPECS}
+
+
+def _named_top_level_nodes(tree: ast.Module) -> dict[str, ast.AST]:
+    nodes: dict[str, ast.AST] = {}
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            nodes[node.name] = node
+    return nodes
+
+
+def _extract_method_dump(code: str, *, class_name: str, method_name: str) -> str | None:
+    tree = ast.parse(code)
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef) or node.name != class_name:
+            continue
+        for item in node.body:
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name == method_name:
+                return ast.dump(item, include_attributes=False)
+    return None
+
+
+def _section_line_span(code: str, spec: EditableSectionSpec) -> tuple[int, int]:
+    tree = ast.parse(code)
+    nodes = _named_top_level_nodes(tree)
+    missing = [name for name in spec.symbols if name not in nodes]
+    if missing:
+        raise ValueError(f"missing section symbols in candidate.py: {', '.join(missing)}")
+    selected = [nodes[name] for name in spec.symbols]
+    start = min(node.lineno for node in selected)
+    end = max(node.end_lineno or node.lineno for node in selected)
+    return start, end
+
+
+def _section_source(code: str, spec: EditableSectionSpec) -> str:
+    start, end = _section_line_span(code, spec)
+    lines = code.splitlines()
+    return "\n".join(lines[start - 1 : end]).rstrip() + "\n"
+
+
+def _validate_section_replacement(section_name: str, replacement_code: str, base_code: str) -> str | None:
+    # The outer loop only allows one bounded rewrite at a time. This check keeps
+    # the model from smuggling in wrapper edits by returning extra symbols.
+    spec = SECTION_SPECS_BY_NAME.get(section_name)
+    if spec is None:
+        return f"unknown section: {section_name}"
+
+    try:
+        tree = ast.parse(replacement_code)
+    except SyntaxError as exc:
+        return f"section parse failed: {exc}"
+
+    named_nodes = _named_top_level_nodes(tree)
+    actual_names = tuple(named_nodes.keys())
+    if actual_names != spec.symbols:
+        expected = ", ".join(spec.symbols)
+        actual = ", ".join(actual_names) or "<none>"
+        return f"section {section_name} must define exactly: {expected}; got: {actual}"
+
+    if section_name == "model_core":
+        original_dump = _extract_method_dump(base_code, class_name="CifarNet", method_name="init_whiten")
+        replacement_dump = _extract_method_dump(replacement_code, class_name="CifarNet", method_name="init_whiten")
+        if original_dump is None or replacement_dump is None:
+            return "model_core must preserve CifarNet.init_whiten"
+        if original_dump != replacement_dump:
+            return "model_core must preserve CifarNet.init_whiten exactly"
+
+    return None
+
+
+def apply_section_edit(base_code: str, section_name: str, replacement_code: str) -> str:
+    # Rebuild the full candidate by splicing a validated section into the current
+    # incumbent. Everything outside the section stays byte-for-byte identical.
+    spec = SECTION_SPECS_BY_NAME[section_name]
+    start, end = _section_line_span(base_code, spec)
+    lines = base_code.splitlines()
+    replacement_lines = replacement_code.rstrip().splitlines()
+    new_lines = lines[: start - 1] + replacement_lines + lines[end:]
+    return "\n".join(new_lines).rstrip() + "\n"
+
+
+def section_inventory_text(base_code: str) -> str:
+    parts = []
+    for spec in SECTION_SPECS:
+        parts.append(f"- {spec.name}: {spec.description}")
+        parts.append("  Current code:")
+        parts.append("```python")
+        parts.append(_section_source(base_code, spec).rstrip())
+        parts.append("```")
+    return "\n".join(parts)
+
+
+def extract_summary_section_and_code(raw_text: str) -> tuple[str, str, str]:
+    # The proposal protocol is intentionally rigid so the loop can treat model
+    # output as a structured section replacement instead of a free-form rewrite.
     summary = "model proposal"
     summary_match = re.search(r"^SUMMARY:\s*(.+)$", raw_text, flags=re.MULTILINE)
     if summary_match:
         summary = summary_match.group(1).strip()
+
+    section_match = re.search(r"^SECTION:\s*([A-Za-z0-9_]+)\s*$", raw_text, flags=re.MULTILINE)
+    if not section_match:
+        raise ValueError("model response did not include SECTION")
+    section_name = section_match.group(1).strip()
+    if section_name not in SECTION_SPECS_BY_NAME:
+        raise ValueError(f"model response used unknown section {section_name!r}")
 
     fence_match = re.search(r"```(?:python)?\s*(.*?)```", raw_text, flags=re.DOTALL | re.IGNORECASE)
     if fence_match:
         code = fence_match.group(1).strip()
     else:
         code = raw_text.strip()
+        last_header_end = 0
         if summary_match:
-            code = raw_text[summary_match.end() :].strip()
+            last_header_end = max(last_header_end, summary_match.end())
+        if section_match:
+            last_header_end = max(last_header_end, section_match.end())
+        if last_header_end:
+            code = raw_text[last_header_end:].strip()
     if code.startswith("```"):
         code = code.split("\n", 1)[1] if "\n" in code else ""
     if code.endswith("```"):
         code = code.rsplit("```", 1)[0].rstrip()
     if not code:
         raise ValueError("model response did not include candidate code")
-    return summary, code
+    return summary, section_name, code
 
-
-REQUIRED_CLI_FLAGS = (
-    "--data-dir",
-    "--trials",
-    "--warmup-trials",
-    "--target-accuracy",
-    "--json-only",
-    "--preflight",
-    "--verbose",
-)
 
 REQUIRED_JSON_KEYS = (
     "mean_accuracy",
@@ -99,34 +224,11 @@ REQUIRED_JSON_KEYS = (
 
 
 def validate_candidate_contract(code: str) -> str | None:
+    # Section-locked editing already preserves the wrapper. This last check only
+    # verifies that the assembled file still contains the required result fields.
     missing_json_keys = [key for key in REQUIRED_JSON_KEYS if f'"{key}"' not in code and f"'{key}'" not in code]
     if missing_json_keys:
         return f"missing required JSON keys: {', '.join(missing_json_keys)}"
-
-    with TemporaryDirectory(prefix="airbench_contract_") as tmpdir:
-        candidate_path = Path(tmpdir) / "candidate.py"
-        candidate_path.write_text(code, encoding="utf-8")
-        try:
-            completed = subprocess.run(
-                [sys.executable, str(candidate_path), "--help"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
-            )
-        except Exception as exc:
-            return f"--help invocation failed: {exc}"
-
-        if completed.returncode != 0:
-            tail = (completed.stderr or completed.stdout).strip()
-            tail = tail[-400:] if tail else f"exit code {completed.returncode}"
-            return f"--help failed: {tail}"
-
-        help_text = (completed.stdout or "") + "\n" + (completed.stderr or "")
-        missing_flags = [flag for flag in REQUIRED_CLI_FLAGS if flag not in help_text]
-        if missing_flags:
-            return f"missing required CLI flags: {', '.join(missing_flags)}"
-
     return None
 
 
@@ -160,6 +262,13 @@ def close_results_writer(writer: csv.DictWriter) -> None:
     handle = getattr(writer, "_handle", None)
     if handle is not None:
         handle.close()
+
+
+def load_results_rows(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle, delimiter="\t"))
 
 
 def eval_row(result: Any, *, attempt: int, phase: str, status: str, candidate_sha: str, parent_sha: str, change_summary: str) -> dict[str, Any]:
@@ -332,44 +441,127 @@ def update_memory(memory_path: Path, incumbent_result: Any, accepted_rows: list[
     memory_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def build_prompt(*, program_text: str, memory_text: str, candidate_code: str, recent_rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+def build_prompt(
+    *,
+    program_text: str,
+    strategy_text: str,
+    memory_text: str,
+    candidate_code: str,
+    recent_rows: list[dict[str, Any]],
+) -> list[dict[str, str]]:
     recent_text = "\n".join(
         f"- attempt {row['attempt']} [{row['status']}]: acc={row.get('mean_accuracy')} time={row.get('mean_time_seconds')} failure={row.get('failure_type')} summary={row.get('change_summary')}"
         for row in recent_rows
     ) or "- no recent attempts"
+    sections_text = "\n".join(f"- {spec.name}: {spec.description}" for spec in SECTION_SPECS)
     system = (
         "You are improving one Python training script in a keep/discard experiment loop. "
-        "Return one coherent experimental revision to the current file. "
-        "The editable research surface is the training system: optimizer, schedule, batch sizes, precision/compile policy, augmentation/TTA, architecture, and data path choices. "
-        "Treat the CLI wrapper, required flags, JSON output contract, and benchmark timing/reporting semantics as fixed infrastructure unless the experiment directly depends on them. "
-        "The changes should reflect a single clear technical hypothesis rather than random unrelated tweaks. "
+        "You may edit exactly one allowed section at a time; all other code is fixed infrastructure and will be preserved mechanically. "
+        "Choose one section from the allowed list and return only a replacement for that section, not the full file. "
+        "The change should reflect a single clear technical hypothesis rather than random unrelated tweaks. "
         "Preserve the benchmark contract and keep the program readable. "
-        "Do not return explanations after the code. Respond with exactly two parts: "
-        "a first line 'SUMMARY: ...' followed by one fenced Python code block containing the full updated file."
+        "Do not return explanations after the code. Respond with exactly three parts: "
+        "a first line 'SUMMARY: ...', a second line 'SECTION: <name>', and one fenced Python code block containing only the replacement code for that section. "
+        f"Allowed sections:\n{sections_text}"
     )
     user = (
         f"Program instructions:\n{program_text}\n\n"
+        f"Current strategy:\n{strategy_text}\n\n"
         f"Current memory:\n{memory_text}\n\n"
         f"Recent attempts:\n{recent_text}\n\n"
-        f"Current candidate.py:\n```python\n{candidate_code}\n```\n\n"
-        "Produce a revised full file. Make one intentional experiment that is well matched to the task and recent evidence, and keep the wrapper contract intact."
+        f"Editable sections:\n{section_inventory_text(candidate_code)}\n\n"
+        "Produce one section replacement only. Pick the section that best matches the experiment you want to run, and leave all other sections untouched."
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-def propose_candidate(*, model: str, program_text: str, memory_text: str, candidate_code: str, recent_rows: list[dict[str, Any]]) -> tuple[str, str, str]:
+def propose_candidate(
+    *,
+    model: str,
+    program_text: str,
+    strategy_text: str,
+    memory_text: str,
+    candidate_code: str,
+    recent_rows: list[dict[str, Any]],
+) -> tuple[str, str, str]:
     import litellm
 
     messages = build_prompt(
         program_text=program_text,
+        strategy_text=strategy_text,
         memory_text=memory_text,
         candidate_code=candidate_code,
         recent_rows=recent_rows,
     )
     response = litellm.completion(model=model, messages=messages)
     raw_text = response.choices[0].message.content or ""
-    summary, code = extract_summary_and_code(raw_text)
-    return summary, code, raw_text
+    summary, section_name, replacement_code = extract_summary_section_and_code(raw_text)
+    replacement_error = _validate_section_replacement(section_name, replacement_code, candidate_code)
+    if replacement_error is not None:
+        raise ValueError(replacement_error)
+    updated_code = apply_section_edit(candidate_code, section_name, replacement_code)
+    return f"[{section_name}] {summary}", updated_code, raw_text
+
+
+def build_strategy_prompt(
+    *,
+    program_text: str,
+    current_strategy_text: str,
+    memory_text: str,
+    round_summary: dict[str, Any],
+    round_rows: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    recent_attempts = []
+    for row in round_rows[-10:]:
+        recent_attempts.append(
+            f"- attempt {row.get('attempt')} [{row.get('status')}]: "
+            f"acc={row.get('mean_accuracy')} time={row.get('mean_time_seconds')} "
+            f"failure={row.get('failure_type')} summary={row.get('change_summary')}"
+        )
+    recent_text = "\n".join(recent_attempts) or "- no attempts recorded"
+    summary_text = json.dumps(round_summary, indent=2, sort_keys=True, default=str)
+    system = (
+        "You are revising strategy.md for the next batch of experiments in a two-layer keep/discard optimization loop. "
+        "You are not editing candidate.py. "
+        "Keep the strategy concise, practical, and focused on a few experiment families or hypotheses to try next. "
+        "Assume the wrapper contract, CLI flags, JSON output, and benchmark semantics are fixed and should not be targets. "
+        "Return markdown only, no code fences."
+    )
+    user = (
+        f"Program instructions:\n{program_text}\n\n"
+        f"Current strategy.md:\n{current_strategy_text}\n\n"
+        f"Current memory:\n{memory_text}\n\n"
+        f"Last round summary:\n{summary_text}\n\n"
+        f"Last round attempts:\n{recent_text}\n\n"
+        "Rewrite strategy.md for the next round. Keep it short and actionable."
+    )
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def propose_strategy_update(
+    *,
+    model: str,
+    program_text: str,
+    current_strategy_text: str,
+    memory_text: str,
+    round_summary: dict[str, Any],
+    round_rows: list[dict[str, str]],
+) -> tuple[str, str]:
+    import litellm
+
+    messages = build_strategy_prompt(
+        program_text=program_text,
+        current_strategy_text=current_strategy_text,
+        memory_text=memory_text,
+        round_summary=round_summary,
+        round_rows=round_rows,
+    )
+    response = litellm.completion(model=model, messages=messages)
+    raw_text = response.choices[0].message.content or ""
+    strategy_text = raw_text.strip()
+    if not strategy_text:
+        raise ValueError("model response did not include strategy text")
+    return strategy_text, raw_text
 
 
 def write_json(path: Path, payload: Any) -> None:
@@ -385,12 +577,15 @@ def is_infra_failure(result: Any) -> bool:
 class AutoresearchLoopConfig:
     candidate_path: Path
     program_path: Path
+    strategy_path: Path
     memory_path: Path
     incumbent_record_path: Path
     run_dir: Path
     model: str
     max_attempts: int
     final_strict_eval: bool = True
+    strategy_rounds: int = 1
+    strategy_model: str | None = None
 
 
 def run_autoresearch_loop(
@@ -408,8 +603,7 @@ def run_autoresearch_loop(
     accepted_rows: list[dict[str, Any]] = []
     rejected_rows: list[dict[str, Any]] = []
     all_rows: list[dict[str, Any]] = []
-    current_code = config.candidate_path.read_text(encoding="utf-8")
-    incumbent_code = current_code
+    incumbent_code = config.candidate_path.read_text(encoding="utf-8")
     incumbent_sha = text_sha256(incumbent_code)
     start_time = time.time()
 
@@ -480,12 +674,14 @@ def run_autoresearch_loop(
         for attempt in range(1, config.max_attempts + 1):
             logger(f"[loop] attempt {attempt}/{config.max_attempts}: proposing edit")
             program_text = config.program_path.read_text(encoding="utf-8")
+            strategy_text = config.strategy_path.read_text(encoding="utf-8")
             memory_text = config.memory_path.read_text(encoding="utf-8")
             recent_rows = all_rows[-5:]
             try:
                 summary, proposed_code, raw_response = propose_candidate(
                     model=config.model,
                     program_text=program_text,
+                    strategy_text=strategy_text,
                     memory_text=memory_text,
                     candidate_code=incumbent_code,
                     recent_rows=recent_rows,
@@ -786,3 +982,113 @@ def run_autoresearch_loop(
         return 0
     finally:
         close_results_writer(results_writer)
+
+
+def run_meta_autoresearch_loop(
+    config: AutoresearchLoopConfig,
+    evaluate_proxy: Callable[[str], Any],
+    evaluate_strict: Callable[[str], Any],
+    *,
+    logger: Callable[[str], None] = print,
+) -> int:
+    # Outer loop: run a batch of bounded inner experiments, then rewrite
+    # strategy.md for the next batch based on the round summary and ledger.
+    if config.strategy_rounds <= 1:
+        return run_autoresearch_loop(config, evaluate_proxy, evaluate_strict, logger=logger)
+
+    config.run_dir.mkdir(parents=True, exist_ok=True)
+    strategy_history_dir = config.run_dir / "strategy_history"
+    strategy_history_dir.mkdir(parents=True, exist_ok=True)
+    (strategy_history_dir / "round_00_start.md").write_text(
+        config.strategy_path.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    strategy_model = config.strategy_model or config.model
+    campaign_rounds: list[dict[str, Any]] = []
+    exit_code = 0
+
+    for round_idx in range(1, config.strategy_rounds + 1):
+        round_dir = config.run_dir / f"round_{round_idx:02d}"
+        logger(
+            f"[meta] round {round_idx}/{config.strategy_rounds}: "
+            f"running {config.max_attempts} inner attempts"
+        )
+        round_cfg = AutoresearchLoopConfig(
+            candidate_path=config.candidate_path,
+            program_path=config.program_path,
+            strategy_path=config.strategy_path,
+            memory_path=config.memory_path,
+            incumbent_record_path=config.incumbent_record_path,
+            run_dir=round_dir,
+            model=config.model,
+            max_attempts=config.max_attempts,
+            final_strict_eval=False,
+            strategy_rounds=1,
+            strategy_model=None,
+        )
+        round_exit_code = run_autoresearch_loop(round_cfg, evaluate_proxy, evaluate_strict, logger=logger)
+        exit_code = round_exit_code
+
+        round_summary_path = round_dir / "summary.json"
+        round_summary = json.loads(round_summary_path.read_text(encoding="utf-8")) if round_summary_path.exists() else {}
+        round_rows = load_results_rows(round_dir / "results.tsv")
+        campaign_rounds.append(
+            {
+                "round": round_idx,
+                "exit_code": round_exit_code,
+                "run_dir": str(round_dir),
+                "summary": round_summary,
+            }
+        )
+
+        if round_exit_code != 0:
+            logger(f"[meta] round {round_idx}: terminating campaign after non-zero exit code")
+            break
+
+        if round_idx >= config.strategy_rounds:
+            break
+
+        logger(f"[meta] round {round_idx}: revising strategy")
+        program_text = config.program_path.read_text(encoding="utf-8")
+        current_strategy_text = config.strategy_path.read_text(encoding="utf-8")
+        memory_text = config.memory_path.read_text(encoding="utf-8")
+        try:
+            new_strategy_text, raw_strategy_response = propose_strategy_update(
+                model=strategy_model,
+                program_text=program_text,
+                current_strategy_text=current_strategy_text,
+                memory_text=memory_text,
+                round_summary=round_summary,
+                round_rows=round_rows,
+            )
+        except Exception as exc:
+            failure_path = strategy_history_dir / f"round_{round_idx:02d}_strategy_error.txt"
+            failure_path.write_text(str(exc) + "\n", encoding="utf-8")
+            logger(f"[meta] round {round_idx}: strategy update failed: {exc}")
+            continue
+
+        (strategy_history_dir / f"round_{round_idx:02d}_strategy.raw.txt").write_text(
+            raw_strategy_response,
+            encoding="utf-8",
+        )
+        config.strategy_path.write_text(new_strategy_text.rstrip() + "\n", encoding="utf-8")
+        (strategy_history_dir / f"round_{round_idx:02d}_strategy.md").write_text(
+            new_strategy_text.rstrip() + "\n",
+            encoding="utf-8",
+        )
+
+    final_record = json.loads(config.incumbent_record_path.read_text(encoding="utf-8"))
+    final_summary = {
+        "model": config.model,
+        "strategy_model": strategy_model,
+        "strategy_rounds": config.strategy_rounds,
+        "attempts_per_round": config.max_attempts,
+        "exit_code": exit_code,
+        "rounds": campaign_rounds,
+        "final_incumbent_sha256": final_record.get("candidate_sha256"),
+        "final_incumbent_strict": final_record.get("strict"),
+        "run_dir": str(config.run_dir),
+    }
+    write_json(config.run_dir / "summary.json", final_summary)
+    return exit_code
