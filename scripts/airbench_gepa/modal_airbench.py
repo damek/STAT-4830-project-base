@@ -152,40 +152,34 @@ def build_script_args(
     return args
 
 
-@app.function(
-    image=image,
-    gpu=DEFAULT_GPU,
-    volumes={REMOTE_DATA_DIR: cifar_volume},
-    timeout=60 * 30,
-    cpu=8,
-    memory=32768,
-)
-def run_airbench_candidate(
+def _run_airbench_candidate_impl(
     solver_code: str,
     script_args: list[str],
-    timeout_seconds: int = 60 * 15,
-    print_subprocess_logs: bool = False,
+    *,
+    timeout_seconds: int,
+    print_subprocess_logs: bool,
+    requested_gpu: str,
 ) -> dict[str, Any]:
     import torch
 
     started_at = time.time()
     actual_device_name = torch.cuda.get_device_name(0)
-    expected_marker = _expected_device_marker(DEFAULT_GPU)
+    expected_marker = _expected_device_marker(requested_gpu)
     if expected_marker is not None and expected_marker not in actual_device_name.upper():
         if print_subprocess_logs:
             print(
                 "[modal] gpu mismatch "
-                f"requested={DEFAULT_GPU} actual_device_name={actual_device_name}"
+                f"requested={requested_gpu} actual_device_name={actual_device_name}"
             )
         return {
             "ok": False,
             "failure_type": "gpu_mismatch",
             "message": (
-                f"requested GPU {DEFAULT_GPU}, but Modal attached "
+                f"requested GPU {requested_gpu}, but Modal attached "
                 f"{actual_device_name}"
             ),
             "runtime_seconds": time.time() - started_at,
-            "requested_gpu": DEFAULT_GPU,
+            "requested_gpu": requested_gpu,
             "actual_device_name": actual_device_name,
             "stdout_tail": "",
             "stderr_tail": "",
@@ -258,8 +252,8 @@ def run_airbench_candidate(
 
         payload["_modal"] = {
             "app_name": APP_NAME,
-            "gpu": DEFAULT_GPU,
-            "requested_gpu": DEFAULT_GPU,
+            "gpu": requested_gpu,
+            "requested_gpu": requested_gpu,
             "actual_device_name": actual_device_name,
             "data_dir": REMOTE_DATA_DIR,
             "runtime_seconds": runtime_seconds,
@@ -273,6 +267,29 @@ def run_airbench_candidate(
             "stderr_tail": _tail(stderr),
             "result": payload,
         }
+
+
+@app.function(
+    image=image,
+    gpu=DEFAULT_GPU,
+    volumes={REMOTE_DATA_DIR: cifar_volume},
+    timeout=60 * 30,
+    cpu=8,
+    memory=32768,
+)
+def run_airbench_candidate(
+    solver_code: str,
+    script_args: list[str],
+    timeout_seconds: int = 60 * 15,
+    print_subprocess_logs: bool = False,
+) -> dict[str, Any]:
+    return _run_airbench_candidate_impl(
+        solver_code,
+        script_args,
+        timeout_seconds=timeout_seconds,
+        print_subprocess_logs=print_subprocess_logs,
+        requested_gpu=DEFAULT_GPU,
+    )
 
 
 @app.local_entrypoint(name="smoke")
