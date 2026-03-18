@@ -6,6 +6,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
+from functools import lru_cache
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -41,12 +42,12 @@ if __package__ in (None, ""):
         evaluate_solver_code,
     )
     from modal_airbench import (
+        APP_NAME as AIRBENCH_APP_NAME,
         DEFAULT_GPU,
         REMOTE_DATA_DIR,
         _run_airbench_candidate_impl,
         cifar_volume,
         image as base_image,
-        run_airbench_candidate,
     )
 
     from loop_core import (
@@ -80,12 +81,12 @@ else:
         evaluate_solver_code,
     )
     from ..airbench_gepa.modal_airbench import (
+        APP_NAME as AIRBENCH_APP_NAME,
         DEFAULT_GPU,
         REMOTE_DATA_DIR,
         _run_airbench_candidate_impl,
         cifar_volume,
         image as base_image,
-        run_airbench_candidate,
     )
     from .loop_core import (
         AutoresearchLoopConfig,
@@ -171,12 +172,20 @@ def _spawn_remote_eval(
     solver_code: str,
     config: AirbenchEvalConfig,
 ) -> modal.functions.FunctionCall:
-    return run_airbench_candidate.spawn(
+    return _remote_eval_function().spawn(
         solver_code=solver_code,
         script_args=build_script_args(config),
         timeout_seconds=config.timeout_seconds,
         print_subprocess_logs=False,
     )
+
+
+@lru_cache(maxsize=1)
+def _remote_eval_function() -> modal.Function:
+    # The batch coordinator runs in a different Modal app from the GPU runner, so
+    # it must resolve the runner by deployed app/function name instead of using
+    # the imported local function object.
+    return modal.Function.from_name(AIRBENCH_APP_NAME, "run_airbench_candidate")
 
 
 def _evaluate_candidates_parallel(
