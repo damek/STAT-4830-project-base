@@ -6,7 +6,6 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
-from functools import lru_cache
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -42,7 +41,6 @@ if __package__ in (None, ""):
         evaluate_solver_code,
     )
     from modal_airbench import (
-        APP_NAME as AIRBENCH_APP_NAME,
         DEFAULT_GPU,
         REMOTE_DATA_DIR,
         _run_airbench_candidate_impl,
@@ -81,7 +79,6 @@ else:
         evaluate_solver_code,
     )
     from ..airbench_gepa.modal_airbench import (
-        APP_NAME as AIRBENCH_APP_NAME,
         DEFAULT_GPU,
         REMOTE_DATA_DIR,
         _run_airbench_candidate_impl,
@@ -167,25 +164,40 @@ class _InlineRunner:
         )
 
 
+@app.function(
+    image=remote_image,
+    gpu=DEFAULT_GPU,
+    volumes={REMOTE_DATA_DIR: cifar_volume},
+    timeout=60 * 30,
+    cpu=8,
+    memory=32768,
+)
+def run_parallel_batch_candidate_eval(
+    solver_code: str,
+    script_args: list[str],
+    timeout_seconds: int = 60 * 15,
+    print_subprocess_logs: bool = False,
+) -> dict[str, Any]:
+    return _run_airbench_candidate_impl(
+        solver_code,
+        script_args,
+        timeout_seconds=timeout_seconds,
+        print_subprocess_logs=print_subprocess_logs,
+        requested_gpu=DEFAULT_GPU,
+    )
+
+
 def _spawn_remote_eval(
     *,
     solver_code: str,
     config: AirbenchEvalConfig,
 ) -> modal.functions.FunctionCall:
-    return _remote_eval_function().spawn(
+    return run_parallel_batch_candidate_eval.spawn(
         solver_code=solver_code,
         script_args=build_script_args(config),
         timeout_seconds=config.timeout_seconds,
         print_subprocess_logs=False,
     )
-
-
-@lru_cache(maxsize=1)
-def _remote_eval_function() -> modal.Function:
-    # The batch coordinator runs in a different Modal app from the GPU runner, so
-    # it must resolve the runner by deployed app/function name instead of using
-    # the imported local function object.
-    return modal.Function.from_name(AIRBENCH_APP_NAME, "run_airbench_candidate")
 
 
 def _evaluate_candidates_parallel(
