@@ -1,0 +1,152 @@
+The proposed changes focus on leveraging `torch.compile` for model execution and optimizing the inference pipeline by ensuring data is on the GPU in the correct format (`half` precision) before processing. This reduces overhead during the critical inference and training paths.
+
+### model_code
+No changes needed.
+
+### train_eval_code
+- Optimized `infer` by pre-casting and pre-moving test images to GPU to eliminate repeated transfers/casts.
+- Integrated `torch.compile` with `mode='reduce-overhead'` in `run_single_trial` to minimize Python call overhead during training steps.
+
+```python
+def infer(model, loader, tta_level=0):
+    def infer_basic(inputs, net):
+        return net(inputs).clone()
+
+    def infer_mirror(inputs, net):
+        return 0.5 * net(inputs) + 0.5 * net(inputs.flip(-1))
+
+    def infer_mirror_translate(inputs, net):
+        logits = infer_mirror(inputs, net)
+        pad = 1
+        padded_inputs = F.pad(inputs, (pad,) * 4, "reflect")
+        translated = [
+            padded_inputs[:, :, 0:32, 0:32],
+            padded_inputs[:, :, 2:34, 2:34],
+        ]
+        logits_translate = torch.stack([infer_mirror(inp, net) for inp in translated]).mean(0)
+        return 0.5 * logits + 0.5 * logits_translate
+
+    model.eval()
+    # Pre-casting to half and moving to GPU once to avoid repeated overhead
+    test_images = loader.normalize(loader.images).half().to("cuda", non_blocking=True)
+    infer_fn = [infer_basic, infer_mirror, infer_mirror_translate][tta_level]
+    with torch.no_grad():
+        return torch.cat([infer_fn(inputs, model) for inputs in test_images.split(2000)])
+
+
+def evaluate(model, loader, tta_level=0):
+    logits = infer(model, loader, tta_level)
+    return (logits.argmax(1) == loader.labels.to("cuda")).float().mean().item()
+
+
+def set_trial_seed(seed: int) -> None:
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
+def run_single_trial(model, data_dir: str, use_dummy_labels: bool = False) -> dict[str, float]:
+    batch_size = 2000
+    bias_lr = 0.053
+    head_lr = 0.67
+    wd = 2e-6 * batch_size
+
+    test_loader = CifarLoader(data_dir, train=False, batch_size=2000)
+    train_loader = CifarLoader(data_dir, train=True, batch_size=batch_size, aug=dict(flip=True, translate=2))
+    if use_dummy_labels:
+        train_loader.labels = torch.randint(0, 10, size=(len(train_loader.labels),), device=train_loader.labels.device)
+
+    total_train_steps = ceil(8 * len(train_loader))
+    whiten_bias_train_steps = ceil(3 * len(train_loader))
+
+    filter_params = [p for p in model.parameters() if len(p.shape) == 4 and p.requires_grad]
+    norm_biases = [p for name, p in model.named_parameters() if "norm" in name and p.requires_grad]
+    param_configs = [
+        dict(params=[model.whiten.bias], lr=bias_lr, weight_decay=wd / bias_lr),
+        dict(params=norm_biases, lr=bias_lr, weight_decay=wd / bias_lr),
+        dict(params=[model.head.weight], lr=head_lr, weight_decay=wd / head_lr),
+    ]
+    optimizer1 = torch.optim.SGD(param_configs, momentum=0.85, nesterov=True, fused=True)
+    optimizer2 = Muon(filter_params, lr=0.24, momentum=0.6, nesterov=True)
+    optimizers = [optimizer1, optimizer2]
+    for opt in optimizers:
+        for group in opt.param_groups:
+            group["initial_lr"] = group["lr"]
+
+    starter = torch.cuda.Event(enable_timing=True)
+    ender = torch.cuda.Event(enable_timing=True)
+    time_seconds = 0.0
+
+    def start_timer():
+        starter.record()
+
+    def stop_timer():
+        ender.record()
+        torch.cuda.synchronize()
+        nonlocal time_seconds
+        time_seconds += 1e-3 * starter.elapsed_time(ender)
+
+    model.reset()
+    model = torch.compile(model, mode="reduce-overhead")
+    step = 0
+
+    start_timer()
+    train_images = train_loader.normalize(train_loader.images[:5000])
+    model.init_whiten(train_images)
+    stop_timer()
+
+    for _epoch in range(ceil(total_train_steps / len(train_loader))):
+        start_timer()
+        model.train()
+        for inputs, labels in train_loader:
+            outputs = model(inputs, whiten_bias_grad=(step < whiten_bias_train_steps))
+            F.cross_entropy(outputs, labels, label_smoothing=0.2, reduction="sum").backward()
+            for group in optimizer1.param_groups[:1]:
+                group["lr"] = group["initial_lr"] * (1 - step / whiten_bias_train_steps)
+            for group in optimizer1.param_groups[1:] + optimizer2.param_groups:
+                group["lr"] = group["initial_lr"] * (1 - step / total_train_steps)
+            for opt in optimizers:
+                opt.step()
+            model.zero_grad(set_to_none=True)
+            step += 1
+            if step >= total_train_steps:
+                break
+        stop_timer()
+
+    start_timer()
+    tta_val_acc = evaluate(model, test_loader, tta_level=2)
+    stop_timer()
+
+    return {
+        "tta_val_accuracy": float(tta_val_acc),
+        "time_seconds": float(time_seconds),
+    }
+
+
+def run_preflight(model, data_dir: str) -> dict[str, float]:
+    batch_size = 2000
+    train_loader = CifarLoader(data_dir, train=True, batch_size=batch_size, aug=dict(flip=True, translate=2))
+    test_loader = CifarLoader(data_dir, train=False, batch_size=batch_size)
+
+    model.reset()
+    train_images = train_loader.normalize(train_loader.images[:5000])
+    model.init_whiten(train_images)
+
+    model.train()
+    inputs, labels = next(iter(train_loader))
+    outputs = model(inputs, whiten_bias_grad=True)
+    loss = F.cross_entropy(outputs, labels, label_smoothing=0.2, reduction="mean")
+    loss.backward()
+    model.zero_grad(set_to_none=True)
+
+    model.eval()
+    with torch.no_grad():
+        eval_inputs = test_loader.normalize(test_loader.images[:batch_size])
+        _ = model(eval_inputs)
+
+    torch.cuda.synchronize()
+    return {
+        "train_batch_size": float(len(inputs)),
+        "eval_batch_size": float(len(eval_inputs)),
+        "loss": float(loss.item()),
+    }
+```

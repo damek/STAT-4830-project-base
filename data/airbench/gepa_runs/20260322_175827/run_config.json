@@ -1,0 +1,42 @@
+{
+  "args": {
+    "cache_evaluation": true,
+    "dry_run": false,
+    "history_aware_proposer": true,
+    "history_window": 8,
+    "max_metric_calls": 4,
+    "max_refinements": 2,
+    "modal_show_output": false,
+    "proposal_strategy": "team",
+    "refiner_model": null,
+    "reflection_model": "gemini/gemini-3.1-flash-lite-preview",
+    "run_dir": "data/airbench/gepa_runs/20260322_175827",
+    "seed": 0,
+    "seed_solver_path": "/Users/allenliu/Desktop/STAT 4830/STAT-4830-AlphaGrad-project/scripts/airbench_gepa/seeds/airbench94_baseline.py",
+    "target_accuracy": 94.0,
+    "team_rounds": 1,
+    "timeout_seconds": 900,
+    "trials": 1,
+    "verify_trials": 3,
+    "warmup_trials": 1
+  },
+  "background": "Runtime environment:\n- Evaluator runs the script remotely on Modal using Python 3.11, torch 2.4.1, torchvision 0.19.1.\n- Hardware target is one NVIDIA A100-40GB GPU.\n- CIFAR-10 is cached on a Modal Volume mounted at /vol/cifar10.\n\nCandidate format:\n- Candidate is full `solver_code`, not a config dict.\n- You may rewrite any part of the program: model, optimizer, schedule, augmentation, compilation, or evaluation logic.\n- Return a complete standalone Python script, not a diff or patch.\n- The script must remain executable as-is under the evaluator contract below.\n\nOutput contract:\n- Script must accept CLI flags: --data-dir, --trials, --warmup-trials, --target-accuracy, --json-only, --preflight.\n- If --preflight is passed, run a cheap smoke-check before full warmup/trials to catch runtime or compile issues early.\n- Final stdout line must be a JSON object containing at least: mean_accuracy, mean_time_seconds, trials.\n- mean_accuracy may be reported as fraction or percentage; evaluator normalizes it.\n- mean_time_seconds must be positive.\n\nScoring:\n- Target accuracy is 94.00%.\n- Any candidate that meets the target beats every candidate that misses it.\n- Among target-meeting candidates, lower mean_time_seconds is better.\n\nEvaluation protocol:\n- Each score uses 1 measured trial(s) after 1 warmup trial(s).\n- Do not hardcode outputs, skip training, or fake metrics.\n- Prefer meaningful improvements to architecture, optimizer, augmentation, batch sizing, compile behavior, or schedule.\n- Preserve dtype consistency across normalized inputs, model weights, and biases, especially for compiled half-precision convolutions.\n- Avoid adding non-standard dependencies.\n- Preserve the CLI/JSON contract even if you substantially rewrite the program.",
+  "created_utc": "2026-03-22T21:58:28.503837Z",
+  "eval_config": {
+    "candidate_verbose": false,
+    "expected_device_marker": "40GB",
+    "gpu_mismatch_retries": 2,
+    "preflight": true,
+    "remote_data_dir": "/vol/cifar10",
+    "stream_subprocess_logs": false,
+    "target_accuracy": 0.94,
+    "timeout_seconds": 900,
+    "trials": 1,
+    "warmup_trials": 1
+  },
+  "history_aware_proposer": true,
+  "history_window": 8,
+  "max_refinements": 2,
+  "objective": "Optimize `solver_code` to train CIFAR-10 on a single NVIDIA A100-40GB GPU to at least 94.00% test-time-augmented accuracy as quickly as possible.",
+  "refiner_model": "gemini/gemini-3.1-flash-lite-preview"
+}

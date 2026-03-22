@@ -1,0 +1,51 @@
+{
+  "accuracy_margin": -0.0022000098228454057,
+  "actual_device_name": "NVIDIA A100-SXM4-40GB",
+  "failure_type": null,
+  "gpu_mismatch_attempts": 0,
+  "mean_accuracy": 0.9377999901771545,
+  "mean_time_seconds": 3.8010674161911018,
+  "meets_target": false,
+  "message": "mean_accuracy=0.9378 mean_time_seconds=3.8011 meets_target=False",
+  "payload": {
+    "_modal": {
+      "actual_device_name": "NVIDIA A100-SXM4-40GB",
+      "app_name": "airbench-gepa",
+      "data_dir": "/vol/cifar10",
+      "gpu": "A100-40GB",
+      "requested_gpu": "A100-40GB",
+      "runtime_seconds": 140.08381128311157
+    },
+    "compiled": true,
+    "device_name": "NVIDIA A100-SXM4-40GB",
+    "mean_accuracy": 0.9377999901771545,
+    "mean_time_seconds": 3.8010674161911018,
+    "meets_target": false,
+    "per_trial": [
+      {
+        "time_seconds": 3.8010674161911018,
+        "tta_val_accuracy": 0.9377999901771545
+      }
+    ],
+    "std_accuracy": 0.0,
+    "std_time_seconds": 0.0,
+    "target_accuracy": 0.94,
+    "torch_version": "2.4.1+cu124",
+    "trials": 1,
+    "warmup_trials": 1
+  },
+  "remote_runtime_seconds": 140.08381128311157,
+  "requested_gpu": "A100-40GB",
+  "runtime_seconds": 140.35196018218994,
+  "score": 0.9377999901771545,
+  "scores": {
+    "accuracy_margin": -0.0022000098228454057,
+    "inverse_time": 0.2630839947064291,
+    "meets_target": 0.0
+  },
+  "stderr_tail": "",
+  "stdout_tail": "{\"mean_accuracy\": 0.9377999901771545, \"std_accuracy\": 0.0, \"mean_time_seconds\": 3.8010674161911018, \"std_time_seconds\": 0.0, \"meets_target\": false, \"target_accuracy\": 0.94, \"trials\": 1, \"warmup_trials\": 1, \"per_trial\": [{\"tta_val_accuracy\": 0.9377999901771545, \"time_seconds\": 3.8010674161911018}], \"torch_version\": \"2.4.1+cu124\", \"device_name\": \"NVIDIA A100-SXM4-40GB\", \"compiled\": true}\n",
+  "target_accuracy": 0.94,
+  "trials": 1,
+  "valid": true
+}

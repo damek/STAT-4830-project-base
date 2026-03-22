@@ -1,0 +1,9 @@
+{
+  "derived_lessons": [
+    "History disabled; do not infer trends from prior evaluations."
+  ],
+  "history_enabled": false,
+  "history_window_used": 0,
+  "message": "History-aware proposer disabled. Use only the current evaluation feedback.",
+  "num_evaluations_considered": 0
+}

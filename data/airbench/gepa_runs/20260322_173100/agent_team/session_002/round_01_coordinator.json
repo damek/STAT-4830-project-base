@@ -1,0 +1,13 @@
+{
+  "integration_notes": "We will focus on moving image normalization and data augmentation to the GPU within the data loader if possible. We will also review the model definition to ensure `torch.compile` is effectively utilized across the entire training and inference pipeline.",
+  "performance_focus_sections": [
+    "data_code",
+    "train_eval_code"
+  ],
+  "performance_task": "Refine the data loader augmentation pipeline (specifically moving more operations to the GPU) and further optimize the training loop by tuning the learning rate schedule and precision usage to squeeze out more speed.",
+  "reliability_focus_sections": [
+    "model_code"
+  ],
+  "reliability_task": "Ensure that the aggressive training optimizations do not cause divergence or accuracy degradation, specifically monitoring the impact of mixed precision on the BatchNorm layers and weight updates.",
+  "round_goal": "Further optimize the training loop and data pipeline to reduce total execution time, while ensuring accuracy remains robustly above the 94.00% threshold."
+}

@@ -1,0 +1,14 @@
+{
+  "integration_notes": "The current solution is already very fast and accurate. Modifications should be minimal to avoid regressions, focusing on cleanup (like addressing the FutureWarning) while verifying that `torch.compile` is effectively used. Keep the existing CLI structure.",
+  "performance_focus_sections": [
+    "train_eval_code",
+    "model_code"
+  ],
+  "performance_task": "Review and refine the training loop and compilation settings to reduce total latency, potentially tuning batch sizes or scheduler steps if headroom exists.",
+  "reliability_focus_sections": [
+    "data_code",
+    "setup_code"
+  ],
+  "reliability_task": "Ensure data loading from the Modal Volume remains efficient and error-free, and address the FutureWarning regarding torch.load usage.",
+  "round_goal": "Maintain 94%+ accuracy while optimizing training throughput, ensuring stable compilation and data loading."
+}

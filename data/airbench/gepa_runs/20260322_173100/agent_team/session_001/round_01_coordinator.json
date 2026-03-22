@@ -1,0 +1,13 @@
+{
+  "integration_notes": "The primary objective is to speed up the training loop. We will utilize torch.compile with max-autotune and ensure mixed-precision training is correctly enabled for the A100. Data augmentation overhead should be minimized by moving operations to the GPU where possible.",
+  "performance_focus_sections": [
+    "train_eval_code",
+    "model_code"
+  ],
+  "performance_task": "Implement aggressive TorchCompile and optimize the training loop's data throughput to minimize total execution time without sacrificing final accuracy.",
+  "reliability_focus_sections": [
+    "data_code"
+  ],
+  "reliability_task": "Ensure data loading remains robust and cache-friendly on the Modal volume to avoid I/O bottlenecks during rapid experimentation.",
+  "round_goal": "Maintain 94.00%+ accuracy while optimizing the training pipeline for reduced latency and overhead."
+}

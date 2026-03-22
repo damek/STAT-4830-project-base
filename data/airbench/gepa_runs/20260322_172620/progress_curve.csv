@@ -1,0 +1,2 @@
+metric_call,candidate_kind,same_as_seed,score,best_score_so_far,mean_accuracy,best_accuracy_so_far,mean_time_seconds,best_target_mean_time_so_far,meets_target,is_new_best_score,is_first_target_hit,elapsed_wall_clock_seconds,runtime_seconds,remote_runtime_seconds
+1,seed,True,1000.3857057284378,1000.3857057284378,0.9416999816894531,0.9416999816894531,2.592650111913681,2.592650111913681,True,True,True,162.33610245899763,162.33258080482483,154.02499508857727

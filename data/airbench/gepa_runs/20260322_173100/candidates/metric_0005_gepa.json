@@ -1,0 +1,12 @@
+{
+  "failure_type": "syntax_error",
+  "mean_accuracy": null,
+  "mean_time_seconds": null,
+  "message": "syntax error: invalid syntax (<candidate>, line 156)",
+  "runtime_seconds": 0.0,
+  "score": 0.0,
+  "stderr_tail": "",
+  "stdout_tail": "",
+  "trials": null,
+  "valid": false
+}

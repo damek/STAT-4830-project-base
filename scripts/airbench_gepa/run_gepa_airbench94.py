@@ -89,6 +89,18 @@ def parse_args() -> argparse.Namespace:
         help="Maximum internal coordinator/worker/reviewer rounds per proposal when using team strategy.",
     )
     parser.add_argument(
+        "--history-aware-proposer",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Feed structured prior evaluation history into the team proposer prompts.",
+    )
+    parser.add_argument(
+        "--history-window",
+        type=int,
+        default=8,
+        help="Number of recent evaluation rows to summarize for history-aware team prompts.",
+    )
+    parser.add_argument(
         "--refiner-model",
         type=str,
         default=None,
@@ -494,6 +506,8 @@ def _run_with_modal_context(args: argparse.Namespace, eval_cfg: AirbenchEvalConf
             "background": background,
             "refiner_model": refiner_model,
             "max_refinements": args.max_refinements,
+            "history_aware_proposer": args.history_aware_proposer,
+            "history_window": args.history_window,
         },
     )
     (args.run_dir / "seed_solver.py").write_text(seed_solver_code, encoding="utf-8")
@@ -607,6 +621,8 @@ def _run_with_modal_context(args: argparse.Namespace, eval_cfg: AirbenchEvalConf
                     eval_history_ref=eval_history,
                     run_dir=args.run_dir,
                     max_rounds=args.team_rounds,
+                    history_window=args.history_window,
+                    history_enabled=args.history_aware_proposer,
                 )
                 if args.proposal_strategy == "team"
                 else None
@@ -653,6 +669,8 @@ def _run_with_modal_context(args: argparse.Namespace, eval_cfg: AirbenchEvalConf
         "reflection_model": args.reflection_model,
         "proposal_strategy": args.proposal_strategy,
         "team_rounds": args.team_rounds,
+        "history_aware_proposer": args.history_aware_proposer,
+        "history_window": args.history_window,
         "refiner_model": refiner_model if args.max_refinements > 0 else None,
         "max_refinements": args.max_refinements,
         "total_metric_calls": result.total_metric_calls,
@@ -681,6 +699,11 @@ def _run_with_modal_context(args: argparse.Namespace, eval_cfg: AirbenchEvalConf
             f"(model={refiner_model}, max_refinements={args.max_refinements})"
         )
     print(f"[gepa] proposal strategy        : {args.proposal_strategy}")
+    if args.proposal_strategy == "team":
+        print(
+            f"[gepa] history-aware proposer  : {args.history_aware_proposer} "
+            f"(window={args.history_window})"
+        )
     print(f"[gepa] run artifacts            : {args.run_dir}")
     return 0
 

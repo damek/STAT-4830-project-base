@@ -1,0 +1,13 @@
+{
+  "integration_notes": "The script will continue to use the established `CifarLoader` and `BatchNorm` classes, ensuring compatibility with the pre-existing environment. We will explicitly prioritize JIT compilation and fused kernels.",
+  "performance_focus_sections": [
+    "model_code",
+    "train_eval_code"
+  ],
+  "performance_task": "Leverage `torch.compile` more effectively, optimize the data loader (pre-allocate pinned memory or move entirely to GPU), and simplify the training loop to minimize Python overhead during critical path execution.",
+  "reliability_focus_sections": [
+    "data_code"
+  ],
+  "reliability_task": "Ensure the evaluation loop (TTA) remains deterministic and matches the exact evaluation logic used in previous successful trials to prevent accuracy regression.",
+  "round_goal": "Further optimize inference and training throughput while maintaining the 94% accuracy threshold."
+}

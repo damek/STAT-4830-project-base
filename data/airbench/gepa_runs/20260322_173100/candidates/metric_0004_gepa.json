@@ -1,0 +1,51 @@
+{
+  "accuracy_margin": -0.004700007438659615,
+  "actual_device_name": "NVIDIA A100-SXM4-40GB",
+  "failure_type": null,
+  "gpu_mismatch_attempts": 0,
+  "mean_accuracy": 0.9352999925613403,
+  "mean_time_seconds": 2.419758636236191,
+  "meets_target": false,
+  "message": "mean_accuracy=0.9353 mean_time_seconds=2.4198 meets_target=False",
+  "payload": {
+    "_modal": {
+      "actual_device_name": "NVIDIA A100-SXM4-40GB",
+      "app_name": "airbench-gepa",
+      "data_dir": "/vol/cifar10",
+      "gpu": "A100-40GB",
+      "requested_gpu": "A100-40GB",
+      "runtime_seconds": 316.1515808105469
+    },
+    "compiled": true,
+    "device_name": "NVIDIA A100-SXM4-40GB",
+    "mean_accuracy": 0.9352999925613403,
+    "mean_time_seconds": 2.419758636236191,
+    "meets_target": false,
+    "per_trial": [
+      {
+        "time_seconds": 2.419758636236191,
+        "tta_val_accuracy": 0.9352999925613403
+      }
+    ],
+    "std_accuracy": 0.0,
+    "std_time_seconds": 0.0,
+    "target_accuracy": 0.94,
+    "torch_version": "2.4.1+cu124",
+    "trials": 1,
+    "warmup_trials": 1
+  },
+  "remote_runtime_seconds": 316.1515808105469,
+  "requested_gpu": "A100-40GB",
+  "runtime_seconds": 316.38190603256226,
+  "score": 0.9352999925613403,
+  "scores": {
+    "accuracy_margin": -0.004700007438659615,
+    "inverse_time": 0.41326435828138963,
+    "meets_target": 0.0
+  },
+  "stderr_tail": "349 ms 39.0%\n  triton_convolution_361 1.4029 ms 34.3%\n  triton_convolution_363 2.3583 ms 20.4%\nSingleProcess AUTOTUNE benchmarking takes 1.0779 seconds and 0.0000 seconds precompiling\nAUTOTUNE convolution(2000x64x15x15, 64x64x3x3)\n  convolution 0.2043 ms 100.0%\n  triton_convolution_372 0.2836 ms 72.0%\n  triton_convolution_369 0.3123 ms 65.4%\n  triton_convolution_371 0.3144 ms 65.0%\n  triton_convolution_373 0.3400 ms 60.1%\n  triton_convolution_374 0.3543 ms 57.7%\n  triton_convolution_368 0.4669 ms 43.8%\n  triton_convolution_370 1.6558 ms 12.3%\nSingleProcess AUTOTUNE benchmarking takes 1.0023 seconds and 0.0000 seconds precompiling\nAUTOTUNE convolution(2000x64x15x15, 256x64x3x3)\n  convolution 0.6175 ms 100.0%\n  triton_convolution_380 0.8602 ms 71.8%\n  triton_convolution_376 1.1407 ms 54.1%\n  triton_convolution_379 1.1500 ms 53.7%\n  triton_convolution_378 1.1781 ms 52.4%\n  triton_convolution_375 1.2472 ms 49.5%\n  triton_convolution_381 1.2974 ms 47.6%\n  triton_convolution_377 6.6760 ms 9.2%\nSingleProcess AUTOTUNE benchmarking takes 1.0869 seconds and 0.0000 seconds precompiling\nAUTOTUNE convolution(2000x256x7x7, 256x256x3x3)\n  convolution 0.4577 ms 100.0%\n  triton_convolution_386 0.8499 ms 53.9%\n  triton_convolution_385 1.0025 ms 45.7%\n  triton_convolution_387 1.0107 ms 45.3%\n  triton_convolution_383 1.0220 ms 44.8%\n  triton_convolution_382 1.0322 ms 44.3%\n  triton_convolution_388 1.1387 ms 40.2%\n  triton_convolution_384 8.4951 ms 5.4%\nSingleProcess AUTOTUNE benchmarking takes 1.0815 seconds and 0.0000 seconds precompiling\nAUTOTUNE convolution(2000x256x3x3, 256x256x3x3)\n  convolution 0.0973 ms 100.0%\n  triton_convolution_400 0.1746 ms 55.7%\n  triton_convolution_401 0.2202 ms 44.2%\n  triton_convolution_399 0.2243 ms 43.4%\n  triton_convolution_402 0.2253 ms 43.2%\n  triton_convolution_397 0.2304 ms 42.2%\n  triton_convolution_396 0.2652 ms 36.7%\n  triton_convolution_398 1.0250 ms 9.5%\nSingleProcess AUTOTUNE benchmarking takes 0.9691 seconds and 0.0000 seconds precompiling\n",
+  "stdout_tail": "{\"mean_accuracy\": 0.9352999925613403, \"std_accuracy\": 0.0, \"mean_time_seconds\": 2.419758636236191, \"std_time_seconds\": 0.0, \"meets_target\": false, \"target_accuracy\": 0.94, \"trials\": 1, \"warmup_trials\": 1, \"per_trial\": [{\"tta_val_accuracy\": 0.9352999925613403, \"time_seconds\": 2.419758636236191}], \"torch_version\": \"2.4.1+cu124\", \"device_name\": \"NVIDIA A100-SXM4-40GB\", \"compiled\": true}\n",
+  "target_accuracy": 0.94,
+  "trials": 1,
+  "valid": true
+}

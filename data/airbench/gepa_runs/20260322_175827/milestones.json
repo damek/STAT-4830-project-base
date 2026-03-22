@@ -1,0 +1,19 @@
+{
+  "best_accuracy": 0.9413999915122986,
+  "best_accuracy_elapsed_wall_clock_seconds": 160.83173487504246,
+  "best_accuracy_metric_call": 1,
+  "best_score": 1000.388307173056,
+  "best_score_elapsed_wall_clock_seconds": 250.77516804198967,
+  "best_score_metric_call": 2,
+  "fastest_target_elapsed_wall_clock_seconds": 250.77516804198967,
+  "fastest_target_mean_accuracy": 0.9413999915122986,
+  "fastest_target_mean_time_seconds": 2.5752807812690732,
+  "fastest_target_metric_call": 2,
+  "first_target_elapsed_wall_clock_seconds": 160.83173487504246,
+  "first_target_mean_accuracy": 0.9413999915122986,
+  "first_target_mean_time_seconds": 2.5790373148918153,
+  "first_target_metric_call": 1,
+  "first_target_score": 1000.3877415786991,
+  "total_metric_calls_observed": 8,
+  "total_wall_clock_seconds": 1086.9402012090432
+}

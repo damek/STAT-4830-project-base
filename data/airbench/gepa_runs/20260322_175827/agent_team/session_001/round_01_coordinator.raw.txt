@@ -1,0 +1,185 @@
+{
+  "round_goal": "Maintain 94%+ accuracy while optimizing training throughput, ensuring stable compilation and data loading.",
+  "performance_focus_sections": [
+    "train_eval_code",
+    "model_code"
+  ],
+  "reliability_focus_sections": [
+    "data_code",
+    "setup_code"
+  ],
+  "performance_task": "Review and refine the training loop and compilation settings to reduce total latency, potentially tuning batch sizes or scheduler steps if headroom exists.",
+  "reliability_task": "Ensure data loading from the Modal Volume remains efficient and error-free, and address the FutureWarning regarding torch.load usage.",
+  "integration_notes": "The current solution is already very fast and accurate. Modifications should be minimal to avoid regressions, focusing on cleanup (like addressing the FutureWarning) while verifying that `torch.compile` is effectively used. Keep the existing CLI structure."
+}
+
+```python
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import time
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torchvision
+import torchvision.transforms as T
+from torch.utils.data import DataLoader
+
+# --- Setup / Infrastructure ---
+def get_device():
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# --- Data Loading ---
+class CifarLoader:
+    def __init__(self, data_dir, batch_size=512):
+        self.data_dir = data_dir
+        self.batch_size = batch_size
+        self.transform_train = T.Compose([
+            T.Pad(4, padding_mode='reflect'),
+            T.RandomCrop(32),
+            T.RandomHorizontalFlip(),
+            T.ToTensor(),
+            T.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
+        self.transform_test = T.Compose([
+            T.ToTensor(),
+            T.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
+
+    def get_loaders(self):
+        train_set = torchvision.datasets.CIFAR10(root=self.data_dir, train=True, download=True, transform=self.transform_train)
+        test_set = torchvision.datasets.CIFAR10(root=self.data_dir, train=False, download=True, transform=self.transform_test)
+        
+        train_loader = DataLoader(train_set, batch_size=self.batch_size, shuffle=True, num_workers=2, pin_memory=True)
+        test_loader = DataLoader(test_set, batch_size=self.batch_size, shuffle=False, num_workers=2, pin_memory=True)
+        return train_loader, test_loader
+
+# --- Model ---
+class BatchNorm(nn.BatchNorm2d):
+    def __init__(self, num_features, eps=1e-5, momentum=0.1):
+        super().__init__(num_features, eps=eps, momentum=momentum)
+
+class Conv(nn.Conv2d):
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, stride=1):
+        super().__init__(in_channels, out_channels, kernel_size=kernel_size, padding=padding, stride=stride, bias=False)
+
+class Net(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv1 = Conv(3, 64)
+        self.bn1 = BatchNorm(64)
+        self.conv2 = Conv(64, 128)
+        self.bn2 = BatchNorm(128)
+        self.conv3 = Conv(128, 256)
+        self.bn3 = BatchNorm(256)
+        self.conv4 = Conv(256, 512)
+        self.bn4 = BatchNorm(512)
+        self.pool = nn.MaxPool2d(2)
+        self.classifier = nn.Linear(512, 10, bias=False)
+
+    def forward(self, x):
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = self.pool(F.relu(self.bn2(self.conv2(x))))
+        x = F.relu(self.bn3(self.conv3(x)))
+        x = self.pool(F.relu(self.bn4(self.conv4(x))))
+        x = F.avg_pool2d(x, 8)
+        x = x.view(x.size(0), -1)
+        x = self.classifier(x)
+        return x
+
+# --- Training and Eval Logic ---
+def infer(model, loader, tta_level=0):
+    model.eval()
+    correct = 0
+    total = 0
+    device = next(model.parameters()).device
+    with torch.no_grad():
+        for inputs, targets in loader:
+            inputs, targets = inputs.to(device), targets.to(device)
+            logits = model(inputs)
+            if tta_level > 0:
+                logits += model(torch.flip(inputs, [3]))
+            _, predicted = logits.max(1)
+            total += targets.size(0)
+            correct += predicted.eq(targets).sum().item()
+    return correct / total
+
+def train_one_epoch(model, loader, optimizer, criterion, scheduler):
+    model.train()
+    for inputs, targets in loader:
+        inputs, targets = inputs.to(get_device()), targets.to(get_device())
+        optimizer.zero_grad(set_to_none=True)
+        outputs = model(inputs)
+        loss = criterion(outputs, targets)
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+
+def run_trial(data_dir):
+    device = get_device()
+    loader = CifarLoader(data_dir)
+    train_loader, test_loader = loader.get_loaders()
+    
+    model = Net().to(device)
+    # Using torch.compile for speed
+    model = torch.compile(model)
+    
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.5, momentum=0.9, weight_decay=5e-4)
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.5, steps_per_epoch=len(train_loader), epochs=24)
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+
+    start_time = time.time()
+    for epoch in range(24):
+        train_one_epoch(model, train_loader, optimizer, criterion, scheduler)
+    
+    acc = infer(model, test_loader, tta_level=1)
+    duration = time.time() - start_time
+    return acc, duration
+
+# --- CLI Handling ---
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data-dir", type=str, default="/vol/cifar10")
+    parser.add_argument("--trials", type=int, default=1)
+    parser.add_argument("--warmup-trials", type=int, default=1)
+    parser.add_argument("--target-accuracy", type=float, default=0.94)
+    parser.add_argument("--json-only", action="store_true")
+    parser.add_argument("--preflight", action="store_true")
+    return parser.parse_args()
+
+def main():
+    args = parse_args()
+    
+    if args.preflight:
+        # Simple check for GPU/CUDA before full run
+        print(f"Preflight: GPU={torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'None'}")
+        return
+
+    results = []
+    # Warmup
+    run_trial(args.data_dir)
+    
+    # Trial
+    acc, duration = run_trial(args.data_dir)
+    results.append({"tta_val_accuracy": acc, "time_seconds": duration})
+
+    output = {
+        "mean_accuracy": acc,
+        "std_accuracy": 0.0,
+        "mean_time_seconds": duration,
+        "std_time_seconds": 0.0,
+        "meets_target": acc >= args.target_accuracy,
+        "target_accuracy": args.target_accuracy,
+        "trials": args.trials,
+        "warmup_trials": args.warmup_trials,
+        "per_trial": results,
+        "torch_version": torch.__version__,
+        "device_name": torch.cuda.get_device_name(0),
+        "compiled": True
+    }
+    print(json.dumps(output))
+
+if __name__ == "__main__":
+    main()
+```

@@ -120,53 +120,105 @@ def _review_candidate_block(source: str) -> str:
     return _selected_sections_block(sections, CODE_SECTION_ORDER)
 
 
-def _memory_summary(eval_history: Sequence[dict[str, Any]], max_items: int = 8) -> str:
-    if not eval_history:
-        return "No prior run history exists yet. Use the current program, objective, and feedback as the main context."
+def _compact_history_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "metric_call": row.get("metric_call"),
+        "candidate_kind": row.get("candidate_kind"),
+        "score": row.get("score"),
+        "mean_accuracy": row.get("mean_accuracy"),
+        "mean_time_seconds": row.get("mean_time_seconds"),
+        "failure_type": row.get("failure_type"),
+        "meets_target": row.get("meets_target"),
+        "same_as_seed": row.get("same_as_seed"),
+    }
 
-    best_score_row = max(eval_history, key=lambda row: float(row.get("score", float("-inf"))))
+
+def _derive_history_lessons(
+    window_rows: Sequence[Mapping[str, Any]],
+    *,
+    failure_counts: Mapping[str, int],
+    target_rows: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    lessons: list[str] = []
+
+    repeated_failures = [name for name, count in sorted(failure_counts.items()) if count >= 2]
+    for failure_name in repeated_failures:
+        lessons.append(
+            f"Avoid repeating {failure_name}: add a local check or narrower edits before changing risky logic again."
+        )
+
+    if target_rows:
+        fastest_target = min(
+            (row for row in target_rows if row.get("mean_time_seconds") is not None),
+            key=lambda row: float(row["mean_time_seconds"]),
+            default=target_rows[0],
+        )
+        lessons.append(
+            "Preserve invariants from target-meeting candidates, especially around CLI/JSON contract and stable "
+            f"compiled evaluation paths (best target metric_call={fastest_target.get('metric_call')})."
+        )
+    elif window_rows and all(row.get("failure_type") in (None, "") for row in window_rows):
+        lessons.append(
+            "Recent candidates mostly ran successfully but missed the target, so prioritize speed/accuracy tradeoffs "
+            "over broad reliability rewrites."
+        )
+
+    repeat_count = sum(1 for row in window_rows if row.get("candidate_kind") == "repeat")
+    if repeat_count >= 2:
+        lessons.append("Recent search is repeating itself; make narrower, section-specific edits instead of broad rewrites.")
+
+    if not lessons:
+        lessons.append("History is limited; rely on the current evaluation feedback and keep edits localized.")
+
+    return lessons[:6]
+
+
+def _build_history_summary(
+    eval_history: Sequence[dict[str, Any]],
+    *,
+    history_window: int,
+    enabled: bool,
+) -> dict[str, Any]:
+    if not enabled:
+        return {
+            "history_enabled": False,
+            "history_window_used": 0,
+            "num_evaluations_considered": 0,
+            "message": "History-aware proposer disabled. Use only the current evaluation feedback.",
+            "derived_lessons": ["History disabled; do not infer trends from prior evaluations."],
+        }
+
+    window_rows = list(eval_history[-max(0, history_window) :]) if history_window > 0 else []
+    failure_counts: dict[str, int] = {}
+    for row in window_rows:
+        failure_type = row.get("failure_type")
+        if failure_type:
+            failure_counts[str(failure_type)] = failure_counts.get(str(failure_type), 0) + 1
+
+    target_rows = [row for row in window_rows if row.get("meets_target")]
+    best_score_row = max(window_rows, key=lambda row: float(row.get("score", float("-inf"))), default=None)
     best_acc_row = max(
-        (row for row in eval_history if row.get("mean_accuracy") is not None),
+        (row for row in window_rows if row.get("mean_accuracy") is not None),
         key=lambda row: float(row["mean_accuracy"]),
         default=None,
     )
-    recent_rows = list(eval_history[-max_items:])
-    failures: dict[str, int] = {}
-    for row in eval_history:
-        failure_type = row.get("failure_type")
-        if failure_type:
-            failures[failure_type] = failures.get(failure_type, 0) + 1
 
-    lines = [
-        f"Observed evaluations so far: {len(eval_history)}",
-        (
-            "Best score seen: "
-            f"metric_call={best_score_row.get('metric_call')} "
-            f"score={best_score_row.get('score')} "
-            f"accuracy={best_score_row.get('mean_accuracy')} "
-            f"time={best_score_row.get('mean_time_seconds')}"
+    return {
+        "history_enabled": True,
+        "history_window_used": min(len(eval_history), max(0, history_window)),
+        "num_evaluations_considered": len(window_rows),
+        "best_score_candidate": _compact_history_row(best_score_row) if best_score_row is not None else None,
+        "best_accuracy_candidate": _compact_history_row(best_acc_row) if best_acc_row is not None else None,
+        "target_meeting_candidates": [_compact_history_row(row) for row in target_rows[:3]],
+        "failure_counts": failure_counts,
+        "repeat_candidate_count": sum(1 for row in window_rows if row.get("candidate_kind") == "repeat"),
+        "recent_trajectory": [_compact_history_row(row) for row in window_rows],
+        "derived_lessons": _derive_history_lessons(
+            window_rows,
+            failure_counts=failure_counts,
+            target_rows=target_rows,
         ),
-    ]
-    if best_acc_row is not None:
-        lines.append(
-            "Best accuracy seen: "
-            f"metric_call={best_acc_row.get('metric_call')} "
-            f"accuracy={best_acc_row.get('mean_accuracy')} "
-            f"time={best_acc_row.get('mean_time_seconds')}"
-        )
-    if failures:
-        lines.append("Failure counts: " + ", ".join(f"{k}={v}" for k, v in sorted(failures.items())))
-    else:
-        lines.append("Failure counts: none")
-    lines.append("Recent evaluations:")
-    for row in recent_rows:
-        lines.append(
-            "- "
-            f"call={row.get('metric_call')} kind={row.get('candidate_kind')} "
-            f"score={row.get('score')} acc={row.get('mean_accuracy')} "
-            f"time={row.get('mean_time_seconds')} failure={row.get('failure_type')}"
-        )
-    return "\n".join(lines)
+    }
 
 
 @dataclass
@@ -193,6 +245,8 @@ class AgentTeamProposer:
         eval_history_ref: Sequence[dict[str, Any]],
         run_dir: Path,
         max_rounds: int = 2,
+        history_window: int = 8,
+        history_enabled: bool = True,
     ) -> None:
         self.lm = lm
         self.objective = objective
@@ -200,6 +254,8 @@ class AgentTeamProposer:
         self.eval_history_ref = eval_history_ref
         self.run_dir = run_dir / "agent_team"
         self.max_rounds = max_rounds
+        self.history_window = history_window
+        self.history_enabled = history_enabled
         self._session_counter = 0
 
     def __call__(
@@ -230,19 +286,25 @@ class AgentTeamProposer:
 
         current_feedback = reflective_dataset.get("solver_code", [])
         current_feedback_text = _safe_json(list(current_feedback))
-        memory_text = _memory_summary(self.eval_history_ref)
+        history_summary = _build_history_summary(
+            self.eval_history_ref,
+            history_window=self.history_window,
+            enabled=self.history_enabled,
+        )
+        history_text = _safe_json(history_summary)
         reviewer_feedback = "No reviewer feedback yet."
 
         print(f"[team {self._session_counter:03d}] coordinator session started with {self.max_rounds} round(s)")
 
         for round_idx in range(1, self.max_rounds + 1):
             try:
+                session.write_json(f"round_{round_idx:02d}_history.json", history_summary)
                 coordinator_plan = self._run_coordinator(
                     session,
                     round_idx=round_idx,
                     sections=working_sections,
                     current_feedback_text=current_feedback_text,
-                    memory_text=memory_text,
+                    history_text=history_text,
                     reviewer_feedback=reviewer_feedback,
                 )
                 perf_sections = coordinator_plan.get("performance_focus_sections") or ["train_eval_code", "model_code"]
@@ -261,7 +323,7 @@ class AgentTeamProposer:
                     focus_sections=perf_sections,
                     sections=working_sections,
                     current_feedback_text=current_feedback_text,
-                    memory_text=memory_text,
+                    history_text=history_text,
                     task_brief=str(coordinator_plan.get("performance_task", "")),
                     round_goal=str(coordinator_plan.get("round_goal", "")),
                 )
@@ -272,7 +334,7 @@ class AgentTeamProposer:
                     focus_sections=rel_sections,
                     sections=working_sections,
                     current_feedback_text=current_feedback_text,
-                    memory_text=memory_text,
+                    history_text=history_text,
                     task_brief=str(coordinator_plan.get("reliability_task", "")),
                     round_goal=str(coordinator_plan.get("round_goal", "")),
                 )
@@ -295,7 +357,7 @@ class AgentTeamProposer:
                     round_idx=round_idx,
                     solver_code=integrated_solver,
                     current_feedback_text=current_feedback_text,
-                    memory_text=memory_text,
+                    history_text=history_text,
                     syntax_error=syntax_error,
                 )
 
@@ -333,7 +395,7 @@ class AgentTeamProposer:
         round_idx: int,
         sections: Mapping[str, str],
         current_feedback_text: str,
-        memory_text: str,
+        history_text: str,
         reviewer_feedback: str,
     ) -> dict[str, Any]:
         messages = [
@@ -350,7 +412,7 @@ class AgentTeamProposer:
                 "content": (
                     f"Optimization objective:\n{self.objective}\n\n"
                     f"Domain background:\n{self.background}\n\n"
-                    f"Persistent run memory:\n{memory_text}\n\n"
+                    f"Persistent history side information:\n```json\n{history_text}\n```\n\n"
                     f"Current evaluation feedback:\n```json\n{current_feedback_text}\n```\n\n"
                     f"Latest reviewer feedback:\n{reviewer_feedback}\n\n"
                     f"Current code section inventory:\n{_section_inventory(sections)}\n\n"
@@ -379,7 +441,7 @@ class AgentTeamProposer:
         focus_sections: Sequence[str],
         sections: Mapping[str, str],
         current_feedback_text: str,
-        memory_text: str,
+        history_text: str,
         task_brief: str,
         round_goal: str,
     ) -> dict[str, Any]:
@@ -401,7 +463,7 @@ class AgentTeamProposer:
                     f"Objective:\n{self.objective}\n\n"
                     f"Round goal:\n{round_goal}\n\n"
                     f"Task brief:\n{task_brief}\n\n"
-                    f"Run memory:\n{memory_text}\n\n"
+                    f"Persistent history side information:\n```json\n{history_text}\n```\n\n"
                     f"Current evaluation feedback:\n```json\n{current_feedback_text}\n```\n\n"
                     f"Focus sections:\n{', '.join(focus_sections)}\n\n"
                     f"{_selected_sections_block(sections, focus_sections)}\n\n"
@@ -475,7 +537,7 @@ class AgentTeamProposer:
         round_idx: int,
         solver_code: str,
         current_feedback_text: str,
-        memory_text: str,
+        history_text: str,
         syntax_error: str | None,
     ) -> dict[str, Any]:
         messages = [
@@ -490,7 +552,7 @@ class AgentTeamProposer:
                 "role": "user",
                 "content": (
                     f"Objective:\n{self.objective}\n\n"
-                    f"Run memory:\n{memory_text}\n\n"
+                    f"Persistent history side information:\n```json\n{history_text}\n```\n\n"
                     f"Current evaluation feedback from parent candidate:\n```json\n{current_feedback_text}\n```\n\n"
                     f"Local syntax check result:\n{syntax_error or 'No syntax error detected.'}\n\n"
                     "Do not infer truncation from prompt formatting alone; if you see full section blocks "
@@ -524,6 +586,8 @@ def build_agent_team_candidate_proposer(
     eval_history_ref: Sequence[dict[str, Any]],
     run_dir: Path,
     max_rounds: int = 2,
+    history_window: int = 8,
+    history_enabled: bool = True,
 ) -> Callable[[dict[str, str], Mapping[str, Sequence[Mapping[str, Any]]], list[str]], dict[str, str]]:
     proposer = AgentTeamProposer(
         lm=lm,
@@ -532,5 +596,7 @@ def build_agent_team_candidate_proposer(
         eval_history_ref=eval_history_ref,
         run_dir=run_dir,
         max_rounds=max_rounds,
+        history_window=history_window,
+        history_enabled=history_enabled,
     )
     return proposer

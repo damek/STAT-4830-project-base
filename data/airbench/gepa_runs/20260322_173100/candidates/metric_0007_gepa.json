@@ -1,0 +1,16 @@
+{
+  "actual_device_name": null,
+  "failure_type": "runtime_error",
+  "gpu_mismatch_attempts": 0,
+  "mean_accuracy": null,
+  "mean_time_seconds": null,
+  "message": "candidate exited with code 2",
+  "remote_runtime_seconds": 11.585812330245972,
+  "requested_gpu": null,
+  "runtime_seconds": 11.81373381614685,
+  "score": 0.0,
+  "stderr_tail": "usage: candidate.py [-h] [--data-dir DATA_DIR] [--trials TRIALS] [--json-only]\n                    [--preflight]\ncandidate.py: error: unrecognized arguments: --warmup-trials 1 --target-accuracy 0.94\n",
+  "stdout_tail": "",
+  "trials": null,
+  "valid": false
+}

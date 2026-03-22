@@ -1,0 +1,146 @@
+{
+  "best_accuracy_candidate": {
+    "candidate_kind": "seed",
+    "failure_type": null,
+    "mean_accuracy": 0.9413999915122986,
+    "mean_time_seconds": 2.5790373148918153,
+    "meets_target": true,
+    "metric_call": 1,
+    "same_as_seed": true,
+    "score": 1000.3877415786991
+  },
+  "best_score_candidate": {
+    "candidate_kind": "base_recheck",
+    "failure_type": null,
+    "mean_accuracy": 0.9413999915122986,
+    "mean_time_seconds": 2.5752807812690732,
+    "meets_target": true,
+    "metric_call": 2,
+    "same_as_seed": true,
+    "score": 1000.388307173056
+  },
+  "derived_lessons": [
+    "Preserve invariants from target-meeting candidates, especially around CLI/JSON contract and stable compiled evaluation paths (best target metric_call=2)."
+  ],
+  "failure_counts": {
+    "syntax_error": 1
+  },
+  "history_enabled": true,
+  "history_window_used": 8,
+  "num_evaluations_considered": 8,
+  "recent_trajectory": [
+    {
+      "candidate_kind": "seed",
+      "failure_type": null,
+      "mean_accuracy": 0.9413999915122986,
+      "mean_time_seconds": 2.5790373148918153,
+      "meets_target": true,
+      "metric_call": 1,
+      "same_as_seed": true,
+      "score": 1000.3877415786991
+    },
+    {
+      "candidate_kind": "base_recheck",
+      "failure_type": null,
+      "mean_accuracy": 0.9413999915122986,
+      "mean_time_seconds": 2.5752807812690732,
+      "meets_target": true,
+      "metric_call": 2,
+      "same_as_seed": true,
+      "score": 1000.388307173056
+    },
+    {
+      "candidate_kind": "gepa",
+      "failure_type": null,
+      "mean_accuracy": 0.8478999733924866,
+      "mean_time_seconds": 0.5287293763160706,
+      "meets_target": false,
+      "metric_call": 3,
+      "same_as_seed": false,
+      "score": 0.8478999733924866
+    },
+    {
+      "candidate_kind": "gepa",
+      "failure_type": null,
+      "mean_accuracy": 0.09999999403953552,
+      "mean_time_seconds": 2.594173505544662,
+      "meets_target": false,
+      "metric_call": 4,
+      "same_as_seed": false,
+      "score": 0.09999999403953552
+    },
+    {
+      "candidate_kind": "gepa",
+      "failure_type": "syntax_error",
+      "mean_accuracy": null,
+      "mean_time_seconds": null,
+      "meets_target": null,
+      "metric_call": 5,
+      "same_as_seed": false,
+      "score": 0.0
+    },
+    {
+      "candidate_kind": "gepa",
+      "failure_type": null,
+      "mean_accuracy": 0.9384999871253967,
+      "mean_time_seconds": 2.255222739934921,
+      "meets_target": false,
+      "metric_call": 6,
+      "same_as_seed": false,
+      "score": 0.9384999871253967
+    },
+    {
+      "candidate_kind": "gepa",
+      "failure_type": null,
+      "mean_accuracy": 0.941100001335144,
+      "mean_time_seconds": 2.8815252401828766,
+      "meets_target": true,
+      "metric_call": 7,
+      "same_as_seed": false,
+      "score": 1000.3470384316108
+    },
+    {
+      "candidate_kind": "gepa",
+      "failure_type": null,
+      "mean_accuracy": 0.09999999403953552,
+      "mean_time_seconds": 2.5678887324333193,
+      "meets_target": false,
+      "metric_call": 8,
+      "same_as_seed": false,
+      "score": 0.09999999403953552
+    }
+  ],
+  "repeat_candidate_count": 0,
+  "target_meeting_candidates": [
+    {
+      "candidate_kind": "seed",
+      "failure_type": null,
+      "mean_accuracy": 0.9413999915122986,
+      "mean_time_seconds": 2.5790373148918153,
+      "meets_target": true,
+      "metric_call": 1,
+      "same_as_seed": true,
+      "score": 1000.3877415786991
+    },
+    {
+      "candidate_kind": "base_recheck",
+      "failure_type": null,
+      "mean_accuracy": 0.9413999915122986,
+      "mean_time_seconds": 2.5752807812690732,
+      "meets_target": true,
+      "metric_call": 2,
+      "same_as_seed": true,
+      "score": 1000.388307173056
+    },
+    {
+      "candidate_kind": "gepa",
+      "failure_type": null,
+      "mean_accuracy": 0.941100001335144,
+      "mean_time_seconds": 2.8815252401828766,
+      "meets_target": true,
+      "metric_call": 7,
+      "same_as_seed": false,
+      "score": 1000.3470384316108
+    }
+  ]
+}
