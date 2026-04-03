@@ -1,0 +1,572 @@
+[
+  {
+    "timestamp": "2026-04-01 15:27:51",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 15:28:05",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 15:28:19",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 15:28:19",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 15:28:25",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 15:28:25",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 15:28:25",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 15:28:25",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 15:28:26",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 15:28:26",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 15:32:28",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 15:33:30",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 15:34:28",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 15:35:12",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 15:36:04",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 15:36:55",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 15:37:38",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 15:38:34",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 15:39:29",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 15:40:19",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 16:20:23",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 16:21:19",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 16:22:07",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 16:22:54",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 16:23:48",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 16:24:39",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 16:25:21",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 16:26:13",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 16:27:05",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  },
+  {
+    "timestamp": "2026-04-01 16:27:53",
+    "change_type": "hyperparameter",
+    "idea": "tune weight decay and warmdown length",
+    "params": [
+      "MUON_WD",
+      "ADAM_WD",
+      "WARMDOWN_ITERS"
+    ],
+    "reason": "fallback \u2014 core optimizer params",
+    "priority": "medium",
+    "bpb": Infinity,
+    "improved": false,
+    "config_delta": {
+      "MUON_WD": 0.04,
+      "ADAM_WD": 0.04,
+      "WARMDOWN_ITERS": 4000
+    }
+  }
+]

@@ -10,3 +10,8 @@ __pycache__/
 local/
 
 data/airbench/autoresearch_runs/
+
+# Local Parameter Golf environment and downloaded artifacts
+parameter_golf/.venv/
+parameter_golf/data/datasets/
+parameter_golf/data/tokenizers/
