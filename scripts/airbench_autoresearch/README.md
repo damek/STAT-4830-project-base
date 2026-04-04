@@ -9,6 +9,7 @@ Files:
 - `loop_core.py`: shared keep/discard loop logic
 - `run_candidate.py`: evaluate the current candidate
 - `run_loop.py`: propose -> evaluate -> keep/revert loop
+- `codex_cli_harness.py`: local multi-agent harness that uses `codex exec` for coordinator/worker/reviewer roles
 - `modal_autoresearch.py`: long-lived Modal-hosted loop plus artifact sync helpers
 
 Typical commands:
@@ -24,6 +25,28 @@ python scripts/airbench_autoresearch/run_loop.py \
   --max-attempts 5 \
   --model gemini/gemini-3.1-flash-lite-preview \
   --modal-show-output
+```
+
+Codex CLI harness with one coordinator, three parallel workers, and one reviewer:
+
+```bash
+conda activate airbench_gepa
+python scripts/airbench_autoresearch/codex_cli_harness.py \
+  --rounds 2 \
+  --workers-per-round 3 \
+  --strict-top-k 1
+```
+
+If you want Codex to use a local OSS model provider:
+
+```bash
+conda activate airbench_gepa
+python scripts/airbench_autoresearch/codex_cli_harness.py \
+  --rounds 2 \
+  --workers-per-round 3 \
+  --strict-top-k 1 \
+  --codex-oss \
+  --codex-local-provider ollama
 ```
 
 Background Modal-hosted loop on one long-lived worker:
@@ -52,3 +75,5 @@ Notes:
 - The loop uses a cheap proxy evaluation during search, but any proxy improvement is promoted only after a strict confirmation run.
 - The optional final strict evaluation is mostly redundant now and can usually be disabled for longer runs.
 - The Modal-hosted loop writes artifacts to a Modal Volume first; use `::pull` to sync them back into the local workspace.
+- The Codex CLI harness keeps proposal generation local and deterministic scoring in Python; it writes run artifacts under `data/airbench/codex_cli_runs/<timestamp>/`.
+- The Codex CLI harness does not rely on the API prompt loop directly; it shells out to `codex exec` for coordinator, worker, and reviewer steps.

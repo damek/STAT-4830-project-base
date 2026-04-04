@@ -10,6 +10,7 @@ __pycache__/
 local/
 
 data/airbench/autoresearch_runs/
+data/airbench/codex_cli_runs/
 
 # Local Parameter Golf environment and downloaded artifacts
 parameter_golf/.venv/
