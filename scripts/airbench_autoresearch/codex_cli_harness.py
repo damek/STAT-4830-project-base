@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -28,7 +29,6 @@ if __package__ in (None, ""):
         build_results_writer,
         close_results_writer,
         eval_row,
-        extract_summary_and_code,
         is_better,
         is_infra_failure,
         load_dotenv,
@@ -67,6 +67,32 @@ class CodexExecResult:
     runtime_seconds: float
 
 
+def extract_summary_and_code(raw_text: str) -> tuple[str, str]:
+    # The Codex CLI harness still uses a full-file proposal protocol:
+    # one SUMMARY line plus one fenced Python block containing the entire
+    # candidate.py file. Keep this parser local so it does not drift with
+    # the section-locked loop_core proposal format.
+    summary = "model proposal"
+    summary_match = re.search(r"^SUMMARY:\s*(.+)$", raw_text, flags=re.MULTILINE)
+    if summary_match:
+        summary = summary_match.group(1).strip()
+
+    fence_match = re.search(r"```(?:python)?\s*(.*?)```", raw_text, flags=re.DOTALL | re.IGNORECASE)
+    if fence_match:
+        code = fence_match.group(1).strip()
+    else:
+        code = raw_text.strip()
+        if summary_match:
+            code = raw_text[summary_match.end() :].strip()
+    if code.startswith("```"):
+        code = code.split("\n", 1)[1] if "\n" in code else ""
+    if code.endswith("```"):
+        code = code.rsplit("```", 1)[0].rstrip()
+    if not code:
+        raise ValueError("model response did not include candidate code")
+    return summary, code
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--candidate-path", type=Path, default=DEFAULT_CANDIDATE_PATH)
@@ -85,7 +111,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--strict-trials", type=int, default=3)
     parser.add_argument("--warmup-trials", type=int, default=1)
     parser.add_argument("--timeout-seconds", type=int, default=60 * 15)
-    parser.add_argument("--codex-timeout-seconds", type=int, default=60 * 10)
+    parser.add_argument(
+        "--codex-timeout-seconds",
+        type=int,
+        default=60 * 15,
+        help="Per-Codex coordinator/worker/reviewer timeout in seconds.",
+    )
     parser.add_argument(
         "--final-strict-eval",
         action=argparse.BooleanOptionalAction,
@@ -134,18 +165,25 @@ def _tail(text: str, limit: int = 2000) -> str:
 
 def _json_schema_for_briefs(worker_count: int) -> dict[str, Any]:
     return {
-        "type": "array",
-        "minItems": worker_count,
-        "maxItems": worker_count,
-        "items": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["title", "family", "hypothesis", "instructions"],
-            "properties": {
-                "title": {"type": "string"},
-                "family": {"type": "string"},
-                "hypothesis": {"type": "string"},
-                "instructions": {"type": "string"},
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["briefs"],
+        "properties": {
+            "briefs": {
+                "type": "array",
+                "minItems": worker_count,
+                "maxItems": worker_count,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["title", "family", "hypothesis", "instructions"],
+                    "properties": {
+                        "title": {"type": "string"},
+                        "family": {"type": "string"},
+                        "hypothesis": {"type": "string"},
+                        "instructions": {"type": "string"},
+                    },
+                },
             },
         },
     }
@@ -224,10 +262,13 @@ def _run_codex_exec(
 
 def _parse_worker_briefs(raw_text: str, expected_count: int) -> list[WorkerBrief]:
     payload = json.loads(raw_text)
-    if not isinstance(payload, list) or len(payload) != expected_count:
-        raise ValueError(f"expected JSON array of {expected_count} worker briefs")
+    if not isinstance(payload, dict):
+        raise ValueError("expected JSON object containing worker briefs")
+    items = payload.get("briefs")
+    if not isinstance(items, list) or len(items) != expected_count:
+        raise ValueError(f"expected JSON object with briefs array of length {expected_count}")
     briefs: list[WorkerBrief] = []
-    for item in payload:
+    for item in items:
         if not isinstance(item, dict):
             raise ValueError("worker brief entries must be objects")
         brief = WorkerBrief(
@@ -277,7 +318,7 @@ def _coordinator_prompt(
     ) or "- no recent attempts"
     return (
         "You are coordinating a small local multi-agent coding batch for AirBench.\n\n"
-        "Return a JSON array of exactly "
+        "Return a JSON object with one key, 'briefs', whose value is an array of exactly "
         f"{workers_per_round} distinct worker briefs.\n"
         "Each brief must contain: title, family, hypothesis, instructions.\n"
         "Make the briefs meaningfully different. Avoid issuing multiple briefs that are just tiny variants of the same scalar tweak.\n"

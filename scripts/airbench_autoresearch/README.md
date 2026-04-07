@@ -39,6 +39,8 @@ python scripts/airbench_autoresearch/codex_cli_harness.py \
   --strict-top-k 1
 ```
 
+`codex_cli_harness.py` defaults to a 15-minute timeout per Codex coordinator/worker/reviewer process. Override with `--codex-timeout-seconds` if proposals are consistently faster or slower in your environment.
+
 If you want Codex to use a local OSS model provider:
 
 ```bash
