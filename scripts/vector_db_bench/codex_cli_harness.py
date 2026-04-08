@@ -25,6 +25,113 @@ DEFAULT_MEMORY_TEMPLATE = "# Memory\n\n- no prior rounds\n"
 DEFAULT_REVIEWER_NOTES = "# Reviewer Notes\n\n- no reviewer notes yet\n"
 MUTABLE_FILES = ("Cargo.toml", "src/db.rs", "src/distance.rs")
 READ_ONLY_CONTEXT_FILES = ("src/api.rs", "src/main.rs")
+SEEDED_BASELINE_FILES = {
+    "Cargo.toml": """[package]
+name = "vector-db-skeleton"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+debug = true
+""",
+    "src/db.rs": """use crate::api::*;
+use crate::distance::l2_distance;
+use std::cmp::Ordering;
+use std::sync::RwLock;
+
+const VECTOR_DIM: usize = 128;
+
+struct Storage {
+    ids: Vec<u64>,
+    vectors: Vec<f32>,
+}
+
+pub struct VectorDB {
+    storage: RwLock<Storage>,
+}
+
+impl VectorDB {
+    pub fn new() -> Self {
+        Self {
+            storage: RwLock::new(Storage {
+                ids: Vec::new(),
+                vectors: Vec::new(),
+            }),
+        }
+    }
+
+    pub fn insert(&self, id: u64, vector: Vec<f32>) {
+        if vector.len() != VECTOR_DIM {
+            return;
+        }
+        let mut storage = self.storage.write().unwrap();
+        storage.ids.push(id);
+        storage.vectors.extend_from_slice(&vector);
+    }
+
+    pub fn bulk_insert(&self, vectors: Vec<(u64, Vec<f32>)>) -> usize {
+        let mut storage = self.storage.write().unwrap();
+        storage.ids.reserve(vectors.len());
+        storage.vectors.reserve(vectors.len() * VECTOR_DIM);
+        let mut inserted = 0usize;
+        for (id, vector) in vectors {
+            if vector.len() != VECTOR_DIM {
+                continue;
+            }
+            storage.ids.push(id);
+            storage.vectors.extend_from_slice(&vector);
+            inserted += 1;
+        }
+        inserted
+    }
+
+    pub fn search(&self, query: &[f32], top_k: u32) -> Vec<SearchResult> {
+        if query.len() != VECTOR_DIM || top_k == 0 {
+            return Vec::new();
+        }
+
+        let storage = self.storage.read().unwrap();
+        let count = storage.ids.len();
+        if count == 0 {
+            return Vec::new();
+        }
+
+        let mut scored: Vec<(u64, f64)> = Vec::with_capacity(count);
+        for (idx, id) in storage.ids.iter().copied().enumerate() {
+            let start = idx * VECTOR_DIM;
+            let end = start + VECTOR_DIM;
+            let dist = l2_distance(query, &storage.vectors[start..end]);
+            scored.push((id, dist));
+        }
+
+        scored.sort_unstable_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
+        scored
+            .into_iter()
+            .take(top_k as usize)
+            .map(|(id, distance)| SearchResult { id, distance })
+            .collect()
+    }
+}
+""",
+    "src/distance.rs": """pub fn l2_distance(a: &[f32], b: &[f32]) -> f64 {
+    a.iter()
+        .zip(b.iter())
+        .map(|(x, y)| {
+            let diff = (*x as f64) - (*y as f64);
+            diff * diff
+        })
+        .sum()
+}
+""",
+}
 RESULT_COLUMNS = [
     "attempt",
     "phase",
@@ -240,6 +347,13 @@ def _read_mutable_surface(skeleton_dir: Path) -> dict[str, str]:
         if not path.exists():
             raise FileNotFoundError(f"missing mutable file in skeleton: {path}")
         files[relpath] = _read_text(path)
+    return files
+
+
+def _bootstrap_seed_surface(skeleton_dir: Path) -> dict[str, str]:
+    files = _read_mutable_surface(skeleton_dir)
+    if any("todo!(" in content for content in files.values()):
+        return {relpath: content.rstrip() + "\n" for relpath, content in SEEDED_BASELINE_FILES.items()}
     return files
 
 
@@ -978,7 +1092,7 @@ def _run_harness(args: argparse.Namespace) -> int:
     config = _prepare_config(args)
     args.run_dir.mkdir(parents=True, exist_ok=True)
 
-    incumbent_files = _read_mutable_surface(config.skeleton_dir)
+    incumbent_files = _bootstrap_seed_surface(config.skeleton_dir)
     incumbent_sha = _surface_sha(incumbent_files)
     program_text = _read_text(args.program_path)
     memory_path = args.run_dir / "memory.md"
