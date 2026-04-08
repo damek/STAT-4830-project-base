@@ -42,5 +42,6 @@ python scripts/vector_db_bench/codex_cli_harness.py \
 Notes:
 - proposal generation is parallel; benchmarking stays sequential on one machine for cleaner measurements
 - proxy evaluation uses a smaller query subset by default; strict uses the full query set unless `--strict-max-queries` is set
+- if upstream data conversion produced `base_vectors_*.json` shards, the harness automatically merges them into one benchmark input file under the run directory
 - run artifacts are written under `data/vector_db_bench/codex_cli_runs/<timestamp>/`
 - `--apply-incumbent` writes the final winning mutable files back into the target repo's `skeleton/`

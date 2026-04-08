@@ -273,6 +273,39 @@ def _maybe_make_subset(source: Path, destination: Path, max_items: int) -> Path:
     return destination
 
 
+def _resolve_base_vectors_file(bench_repo: Path, run_dir: Path) -> Path:
+    data_dir = bench_repo / "data"
+    single_file = data_dir / "base_vectors.json"
+    if single_file.exists():
+        return single_file
+
+    shard_paths = sorted(data_dir.glob("base_vectors_*.json"))
+    if not shard_paths:
+        raise FileNotFoundError(
+            f"Could not find base_vectors.json or base_vectors_*.json under {data_dir}"
+        )
+
+    merged_path = run_dir / "benchmark_inputs" / "base_vectors_merged.json"
+    merged_path.parent.mkdir(parents=True, exist_ok=True)
+    if merged_path.exists():
+        return merged_path
+
+    with merged_path.open("w", encoding="utf-8") as out:
+        out.write("[")
+        first = True
+        for shard_path in shard_paths:
+            shard_payload = json.loads(shard_path.read_text(encoding="utf-8"))
+            if not isinstance(shard_payload, list):
+                raise ValueError(f"expected JSON array in shard file {shard_path}")
+            for row in shard_payload:
+                if not first:
+                    out.write(",")
+                json.dump(row, out, separators=(",", ":"))
+                first = False
+        out.write("]\n")
+    return merged_path
+
+
 def _json_schema_for_briefs(worker_count: int) -> dict[str, Any]:
     return {
         "type": "object",
@@ -711,7 +744,7 @@ def _evaluate_candidate(
 
 
 def _prepare_inputs(args: argparse.Namespace, run_dir: Path) -> tuple[EvalInputs, EvalInputs]:
-    base_vectors = args.base_vectors or (args.bench_repo / "data" / "base_vectors.json")
+    base_vectors = args.base_vectors or _resolve_base_vectors_file(args.bench_repo, run_dir)
     query_vectors = args.query_vectors or (args.bench_repo / "data" / "query_vectors.json")
     ground_truth = args.ground_truth or (args.bench_repo / "data" / "ground_truth.json")
     for path in (base_vectors, query_vectors, ground_truth):
