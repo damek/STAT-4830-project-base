@@ -861,22 +861,22 @@ def _evaluate_candidate(
 
 
 def _prepare_inputs(args: argparse.Namespace, run_dir: Path) -> tuple[EvalInputs, EvalInputs]:
-    base_vectors = args.base_vectors or _resolve_base_vectors_file(args.bench_repo, run_dir)
-    query_vectors = args.query_vectors or (args.bench_repo / "data" / "query_vectors.json")
-    ground_truth = args.ground_truth or (args.bench_repo / "data" / "ground_truth.json")
+    base_vectors = (args.base_vectors or _resolve_base_vectors_file(args.bench_repo, run_dir)).resolve()
+    query_vectors = (args.query_vectors or (args.bench_repo / "data" / "query_vectors.json")).resolve()
+    ground_truth = (args.ground_truth or (args.bench_repo / "data" / "ground_truth.json")).resolve()
     for path in (base_vectors, query_vectors, ground_truth):
         if not path.exists():
             raise FileNotFoundError(f"required benchmark data file not found: {path}")
     input_dir = run_dir / "benchmark_inputs"
     proxy_inputs = EvalInputs(
         base_vectors=base_vectors,
-        query_vectors=_maybe_make_subset(query_vectors, input_dir / f"query_vectors_proxy_{args.proxy_max_queries}.json", args.proxy_max_queries),
-        ground_truth=_maybe_make_subset(ground_truth, input_dir / f"ground_truth_proxy_{args.proxy_max_queries}.json", args.proxy_max_queries),
+        query_vectors=_maybe_make_subset(query_vectors, input_dir / f"query_vectors_proxy_{args.proxy_max_queries}.json", args.proxy_max_queries).resolve(),
+        ground_truth=_maybe_make_subset(ground_truth, input_dir / f"ground_truth_proxy_{args.proxy_max_queries}.json", args.proxy_max_queries).resolve(),
     )
     strict_inputs = EvalInputs(
         base_vectors=base_vectors,
-        query_vectors=_maybe_make_subset(query_vectors, input_dir / f"query_vectors_strict_{args.strict_max_queries}.json", args.strict_max_queries),
-        ground_truth=_maybe_make_subset(ground_truth, input_dir / f"ground_truth_strict_{args.strict_max_queries}.json", args.strict_max_queries),
+        query_vectors=_maybe_make_subset(query_vectors, input_dir / f"query_vectors_strict_{args.strict_max_queries}.json", args.strict_max_queries).resolve(),
+        ground_truth=_maybe_make_subset(ground_truth, input_dir / f"ground_truth_strict_{args.strict_max_queries}.json", args.strict_max_queries).resolve(),
     )
     return proxy_inputs, strict_inputs
 
@@ -1050,6 +1050,7 @@ def _worker_task(
 
 
 def _prepare_config(args: argparse.Namespace) -> RunConfig:
+    args.run_dir = args.run_dir.resolve()
     bench_repo = args.bench_repo.resolve()
     skeleton_dir = bench_repo / "skeleton"
     benchmark_dir = bench_repo / "benchmark"
