@@ -1,0 +1,3 @@
+[submodule "third_party/vector-db-bench"]
+	path = third_party/vector-db-bench
+	url = https://github.com/KCORES/vector-db-bench.git
