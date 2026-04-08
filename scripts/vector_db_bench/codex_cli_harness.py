@@ -253,6 +253,7 @@ def _read_readonly_context(skeleton_dir: Path) -> str:
 
 
 def _materialize_workspace(*, skeleton_dir: Path, workspace_dir: Path, files: dict[str, str]) -> None:
+    workspace_dir = workspace_dir.resolve()
     if workspace_dir.exists():
         shutil.rmtree(workspace_dir)
     shutil.copytree(skeleton_dir, workspace_dir)
@@ -598,6 +599,8 @@ def _evaluate_candidate(
     config: RunConfig,
     inputs: EvalInputs,
 ) -> BenchEvalResult:
+    workspace_dir = workspace_dir.resolve()
+    eval_dir = eval_dir.resolve()
     eval_dir.mkdir(parents=True, exist_ok=True)
     started_at = time.time()
     _materialize_workspace(skeleton_dir=config.skeleton_dir, workspace_dir=workspace_dir, files=candidate_files)
