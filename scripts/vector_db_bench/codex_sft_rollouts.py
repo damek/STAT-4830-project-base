@@ -131,7 +131,7 @@ def parse_args() -> argparse.Namespace:
         choices=("read-only", "workspace-write", "danger-full-access"),
         default="workspace-write",
     )
-    parser.add_argument("--codex-timeout-seconds", type=int, default=60 * 15)
+    parser.add_argument("--codex-timeout-seconds", type=int, default=60 * 30)
     parser.add_argument(
         "--modal-show-output",
         action=argparse.BooleanOptionalAction,
@@ -154,6 +154,12 @@ def _close_results_writer(writer: csv.DictWriter) -> None:
     handle = getattr(writer, "_handle", None)
     if handle is not None:
         handle.close()
+
+
+def _flush_results_writer(writer: csv.DictWriter) -> None:
+    handle = getattr(writer, "_handle", None)
+    if handle is not None:
+        handle.flush()
 
 
 def _prompt_text(record: dict[str, Any]) -> str:
@@ -273,6 +279,13 @@ def _evaluate_compile_only(
     }
 
 
+def _write_timeout_log(path: Path, text: str | bytes | None, *, timeout_seconds: int) -> None:
+    if isinstance(text, bytes):
+        text = text.decode("utf-8", errors="replace")
+    payload = (text or "") + f"\n[timeout_seconds]={timeout_seconds}\n"
+    path.write_text(payload, encoding="utf-8")
+
+
 def main() -> None:
     args = parse_args()
     args.run_dir = args.run_dir.resolve()
@@ -304,7 +317,8 @@ def main() -> None:
         raw_records = raw_records[: args.max_prompts]
 
     results_writer = _build_results_writer(args.run_dir / "results.tsv")
-    sft_examples: list[dict[str, Any]] = []
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    sft_handle = output_path.open("w", encoding="utf-8")
     accepted_count = 0
     total_attempts = 0
 
@@ -319,21 +333,6 @@ def main() -> None:
                 total_attempts += 1
                 attempt_dir = prompt_dir / f"attempt_{attempt:02d}"
                 attempt_dir.mkdir(parents=True, exist_ok=True)
-
-                exec_result = _run_codex_exec(
-                    executable=config.codex_executable,
-                    prompt=prompt_text,
-                    cwd=config.bench_repo,
-                    output_path=attempt_dir / "worker_output.json",
-                    timeout_seconds=config.codex_timeout_seconds,
-                    sandbox=config.codex_sandbox,
-                    model=config.codex_model,
-                    use_oss=config.codex_oss,
-                    local_provider=config.codex_local_provider,
-                    schema_path=schema_path,
-                )
-                (attempt_dir / "stdout.log").write_text(exec_result.stdout, encoding="utf-8")
-                (attempt_dir / "stderr.log").write_text(exec_result.stderr, encoding="utf-8")
 
                 result_row: dict[str, Any] = {
                     "prompt_index": prompt_index,
@@ -351,13 +350,47 @@ def main() -> None:
                     "recall": 0.0,
                     "score": 0.0,
                     "failure_type": "proposal_error",
-                    "runtime_seconds": exec_result.runtime_seconds,
+                    "runtime_seconds": 0.0,
                     "change_summary": "",
                 }
+
+                stdout_log = attempt_dir / "stdout.log"
+                stderr_log = attempt_dir / "stderr.log"
+                try:
+                    exec_result = _run_codex_exec(
+                        executable=config.codex_executable,
+                        prompt=prompt_text,
+                        cwd=config.bench_repo,
+                        output_path=attempt_dir / "worker_output.json",
+                        timeout_seconds=config.codex_timeout_seconds,
+                        sandbox=config.codex_sandbox,
+                        model=config.codex_model,
+                        use_oss=config.codex_oss,
+                        local_provider=config.codex_local_provider,
+                        schema_path=schema_path,
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    _write_timeout_log(stdout_log, exc.stdout, timeout_seconds=config.codex_timeout_seconds)
+                    _write_timeout_log(stderr_log, exc.stderr, timeout_seconds=config.codex_timeout_seconds)
+                    result_row.update(
+                        {
+                            "failure_type": "proposal_timeout",
+                            "runtime_seconds": float(config.codex_timeout_seconds),
+                            "change_summary": f"codex exec timed out after {config.codex_timeout_seconds} seconds",
+                        }
+                    )
+                    results_writer.writerow(result_row)
+                    _flush_results_writer(results_writer)
+                    continue
+
+                stdout_log.write_text(exec_result.stdout, encoding="utf-8")
+                stderr_log.write_text(exec_result.stderr, encoding="utf-8")
+                result_row["runtime_seconds"] = exec_result.runtime_seconds
 
                 if exec_result.returncode != 0:
                     result_row["change_summary"] = (exec_result.stderr or exec_result.stdout).strip()[:1000]
                     results_writer.writerow(result_row)
+                    _flush_results_writer(results_writer)
                     continue
 
                 try:
@@ -369,6 +402,7 @@ def main() -> None:
                     result_row["failure_type"] = "parse_error"
                     result_row["change_summary"] = str(exc)
                     results_writer.writerow(result_row)
+                    _flush_results_writer(results_writer)
                     continue
 
                 if args.filter_mode == "benchmark":
@@ -423,45 +457,42 @@ def main() -> None:
                         }
                     )
                 results_writer.writerow(result_row)
+                _flush_results_writer(results_writer)
 
                 if not accepted:
                     continue
 
                 accepted_count += 1
                 clean_output = exec_result.last_message.strip()
-                sft_examples.append(
-                    {
-                        "messages": [
-                            {"role": "user", "content": prompt_text},
-                            {"role": "assistant", "content": clean_output},
-                        ],
-                        "metadata": {
-                            "teacher": "codex-exec",
-                            "filter_mode": args.filter_mode,
-                            "prompt_index": prompt_index,
-                            "attempt": attempt,
-                            "brief_title": record.get("brief_title", ""),
-                            "brief_family": record.get("brief_family", ""),
-                            "eval_phase": args.eval_phase,
-                            "only_valid": args.only_valid,
-                            "build_ok": result_row["build_ok"],
-                            "runtime_ok": result_row["runtime_ok"],
-                            "valid": result_row["valid"],
-                            "recall_passed": result_row["recall_passed"],
-                            "anti_cheat_passed": result_row["anti_cheat_passed"],
-                            "qps": result_row["qps"],
-                            "recall": result_row["recall"],
-                            "summary": summary,
-                        },
-                    }
-                )
+                sft_example = {
+                    "messages": [
+                        {"role": "user", "content": prompt_text},
+                        {"role": "assistant", "content": clean_output},
+                    ],
+                    "metadata": {
+                        "teacher": "codex-exec",
+                        "filter_mode": args.filter_mode,
+                        "prompt_index": prompt_index,
+                        "attempt": attempt,
+                        "brief_title": record.get("brief_title", ""),
+                        "brief_family": record.get("brief_family", ""),
+                        "eval_phase": args.eval_phase,
+                        "only_valid": args.only_valid,
+                        "build_ok": result_row["build_ok"],
+                        "runtime_ok": result_row["runtime_ok"],
+                        "valid": result_row["valid"],
+                        "recall_passed": result_row["recall_passed"],
+                        "anti_cheat_passed": result_row["anti_cheat_passed"],
+                        "qps": result_row["qps"],
+                        "recall": result_row["recall"],
+                        "summary": summary,
+                    },
+                }
+                sft_handle.write(json.dumps(sft_example, ensure_ascii=False) + "\n")
+                sft_handle.flush()
     finally:
         _close_results_writer(results_writer)
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8") as handle:
-        for example in sft_examples:
-            handle.write(json.dumps(example, ensure_ascii=False) + "\n")
+        sft_handle.close()
 
     summary = {
         "prompts_path": str(args.prompts_path),
@@ -475,8 +506,8 @@ def main() -> None:
         "attempts_per_prompt": args.attempts_per_prompt,
         "prompts_evaluated": len(raw_records),
         "attempts_total": total_attempts,
-        "examples_written": len(sft_examples),
-        "accept_rate": (len(sft_examples) / total_attempts) if total_attempts else 0.0,
+        "examples_written": accepted_count,
+        "accept_rate": (accepted_count / total_attempts) if total_attempts else 0.0,
     }
     _write_json(args.run_dir / "summary.json", summary)
 
