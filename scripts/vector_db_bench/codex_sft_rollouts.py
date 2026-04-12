@@ -176,6 +176,8 @@ def _accepted(eval_result: Any, *, only_valid: bool, min_qps: float) -> bool:
 
 
 def _accepted_compile_only(eval_result: Any) -> bool:
+    if isinstance(eval_result, dict):
+        return bool(eval_result.get("build_ok"))
     return bool(eval_result.build_ok)
 
 
