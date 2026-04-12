@@ -792,13 +792,44 @@ def _evaluate_candidate(
     _materialize_workspace(skeleton_dir=config.skeleton_dir, workspace_dir=workspace_dir, files=candidate_files)
 
     build_cmd = ["cargo", "build", "--release"]
-    build_proc = _run_command(
-        build_cmd,
-        cwd=workspace_dir,
-        timeout_seconds=config.build_timeout_seconds,
-        stdout_path=eval_dir / "build.stdout.log",
-        stderr_path=eval_dir / "build.stderr.log",
-    )
+    build_stdout_path = eval_dir / "build.stdout.log"
+    build_stderr_path = eval_dir / "build.stderr.log"
+    try:
+        build_proc = _run_command(
+            build_cmd,
+            cwd=workspace_dir,
+            timeout_seconds=config.build_timeout_seconds,
+            stdout_path=build_stdout_path,
+            stderr_path=build_stderr_path,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout_text = exc.stdout or ""
+        stderr_text = exc.stderr or ""
+        if isinstance(stdout_text, bytes):
+            stdout_text = stdout_text.decode("utf-8", errors="replace")
+        if isinstance(stderr_text, bytes):
+            stderr_text = stderr_text.decode("utf-8", errors="replace")
+        build_stdout_path.write_text(stdout_text, encoding="utf-8")
+        build_stderr_path.write_text(
+            stderr_text + f"\n[timeout_seconds]={config.build_timeout_seconds}\n",
+            encoding="utf-8",
+        )
+        return BenchEvalResult(
+            valid=False,
+            build_ok=False,
+            runtime_ok=False,
+            recall_passed=False,
+            anti_cheat_passed=False,
+            qps=0.0,
+            recall=0.0,
+            avg_latency_ms=0.0,
+            p95_latency_ms=0.0,
+            benchmark_duration_secs=0.0,
+            failure_type="build_timeout",
+            message=f"cargo build timed out after {config.build_timeout_seconds}s",
+            payload=None,
+            runtime_seconds=time.time() - started_at,
+        )
     if build_proc.returncode != 0:
         return BenchEvalResult(
             valid=False,
@@ -868,13 +899,44 @@ def _evaluate_candidate(
             "--seed",
             str(config.seed),
         ]
-        bench_proc = _run_command(
-            benchmark_cmd,
-            cwd=config.benchmark_dir,
-            timeout_seconds=config.benchmark_timeout_seconds,
-            stdout_path=eval_dir / "benchmark.stdout.log",
-            stderr_path=eval_dir / "benchmark.stderr.log",
-        )
+        benchmark_stdout_path = eval_dir / "benchmark.stdout.log"
+        benchmark_stderr_path = eval_dir / "benchmark.stderr.log"
+        try:
+            bench_proc = _run_command(
+                benchmark_cmd,
+                cwd=config.benchmark_dir,
+                timeout_seconds=config.benchmark_timeout_seconds,
+                stdout_path=benchmark_stdout_path,
+                stderr_path=benchmark_stderr_path,
+            )
+        except subprocess.TimeoutExpired as exc:
+            stdout_text = exc.stdout or ""
+            stderr_text = exc.stderr or ""
+            if isinstance(stdout_text, bytes):
+                stdout_text = stdout_text.decode("utf-8", errors="replace")
+            if isinstance(stderr_text, bytes):
+                stderr_text = stderr_text.decode("utf-8", errors="replace")
+            benchmark_stdout_path.write_text(stdout_text, encoding="utf-8")
+            benchmark_stderr_path.write_text(
+                stderr_text + f"\n[timeout_seconds]={config.benchmark_timeout_seconds}\n",
+                encoding="utf-8",
+            )
+            return BenchEvalResult(
+                valid=False,
+                build_ok=True,
+                runtime_ok=False,
+                recall_passed=False,
+                anti_cheat_passed=False,
+                qps=0.0,
+                recall=0.0,
+                avg_latency_ms=0.0,
+                p95_latency_ms=0.0,
+                benchmark_duration_secs=0.0,
+                failure_type="benchmark_timeout",
+                message=f"benchmark timed out after {config.benchmark_timeout_seconds}s",
+                payload=None,
+                runtime_seconds=time.time() - started_at,
+            )
         if bench_proc.returncode != 0:
             return BenchEvalResult(
                 valid=False,
