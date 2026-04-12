@@ -7,25 +7,22 @@ Goal:
 - Keep anti-cheat passing
 - Among valid candidates, maximize benchmark `qps`
 
-Mutable surface only:
-- `Cargo.toml`
-- `src/db.rs`
-- `src/distance.rs`
+Editable surface (see `scripts/vector_db_bench/CONTRACT.md`):
+- All `*.rs` under `skeleton/src/` **except** the protected API/server files
+- `skeleton/Cargo.toml` and optional `skeleton/build.rs`
 
-Fixed surface:
-- HTTP/API contract
-- benchmark crate
-- scoring logic
-- anti-cheat logic
-- dataset files
+Protected (never edit in rollouts):
+- `skeleton/src/api.rs`, `skeleton/src/main.rs` — HTTP/API contract and server entry
+
+Each worker returns **full contents for every current editable file** and may **add** new `src/*.rs` modules (must compile and stay recall-safe).
+
+Fixed outside the skeleton:
+- benchmark client crate, scoring, anti-cheat, dataset files
 
 Priorities:
-1. exact brute-force correctness first
-2. memory layout and data access
-3. L2 distance kernel efficiency
-4. top-k selection efficiency
-5. query-time parallelism
-6. release/profile tuning
-7. ANN structures only after the exact baseline is strong and stable
+1. Recall >= threshold and anti-cheat passing
+2. Throughput (QPS) on the official client workload
+3. Sound ANN / systems choices (IVF, HNSW, quantization, parallelism, SIMD, layout) as appropriate
+4. Release/profile tuning (`Cargo.toml` profiles, features)
 
-Do not rewrite unrelated infrastructure. Prefer coherent systems changes that can plausibly improve throughput while preserving recall.
+Prefer coherent, incremental improvements round-to-round; large architectural jumps are allowed when recall-safe.

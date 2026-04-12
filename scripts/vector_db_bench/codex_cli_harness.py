@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Local multi-agent vector-db-bench harness orchestrated via Codex CLI."""
+"""Local multi-agent vector-db-bench harness orchestrated via Codex CLI.
+
+Editable skeleton files are discovered at runtime (Rust sources + Cargo.toml/build.rs),
+excluding protected API/server paths; see CONTRACT.md next to this script.
+"""
 
 from __future__ import annotations
 
@@ -15,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 from urllib.parse import urlparse
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -23,8 +27,13 @@ DEFAULT_RUN_ROOT = REPO_ROOT / "data" / "vector_db_bench" / "codex_cli_runs"
 DEFAULT_PROGRAM_PATH = Path(__file__).with_name("program.md")
 DEFAULT_MEMORY_TEMPLATE = "# Memory\n\n- no prior rounds\n"
 DEFAULT_REVIEWER_NOTES = "# Reviewer Notes\n\n- no reviewer notes yet\n"
-MUTABLE_FILES = ("Cargo.toml", "src/db.rs", "src/distance.rs")
-READ_ONLY_CONTEXT_FILES = ("src/api.rs", "src/main.rs")
+
+# Protected skeleton paths: HTTP/API + server shell (see CONTRACT.md).
+PROTECTED_SKELETON_PATHS: frozenset[str] = frozenset({"src/api.rs", "src/main.rs"})
+SKIP_SKELETON_DIR_NAMES: frozenset[str] = frozenset({".git", "target", ".idea", ".vscode"})
+# Shown to the coordinator/workers as read-only context.
+READ_ONLY_CONTEXT_FILES: tuple[str, ...] = tuple(sorted(PROTECTED_SKELETON_PATHS))
+
 SEEDED_BASELINE_FILES = {
     "Cargo.toml": """[package]
 name = "vector-db-skeleton"
@@ -132,6 +141,61 @@ impl VectorDB {
 }
 """,
 }
+
+
+def _normalize_skeleton_rel_path(raw: str) -> str:
+    s = raw.replace("\\", "/").strip()
+    if not s or s.startswith("/"):
+        raise ValueError(f"invalid skeleton-relative path: {raw!r}")
+    parts: list[str] = []
+    for seg in s.split("/"):
+        if seg in ("", "."):
+            continue
+        if seg == "..":
+            raise ValueError(f"invalid skeleton-relative path (..): {raw!r}")
+        parts.append(seg)
+    return "/".join(parts)
+
+
+def _is_allowed_mutable_rel_path(rel: str) -> bool:
+    if not rel or rel in PROTECTED_SKELETON_PATHS:
+        return False
+    if any(part in SKIP_SKELETON_DIR_NAMES for part in rel.split("/")):
+        return False
+    if rel.startswith("target/"):
+        return False
+    if rel == "Cargo.toml" or rel == "build.rs":
+        return True
+    if rel.startswith("src/") and rel.endswith(".rs"):
+        return True
+    return False
+
+
+def _discover_editable_skeleton_files(skeleton_dir: Path) -> dict[str, str]:
+    skeleton_dir = skeleton_dir.resolve()
+    if not skeleton_dir.is_dir():
+        raise FileNotFoundError(f"missing skeleton directory: {skeleton_dir}")
+    found: dict[str, str] = {}
+    for path in sorted(skeleton_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(skeleton_dir).as_posix()
+        if rel in PROTECTED_SKELETON_PATHS:
+            continue
+        if any(part in SKIP_SKELETON_DIR_NAMES for part in path.relative_to(skeleton_dir).parts):
+            continue
+        if rel.endswith(".rs") or rel in ("Cargo.toml", "build.rs"):
+            if _is_allowed_mutable_rel_path(rel):
+                found[rel] = _read_text(path)
+    if not found:
+        raise FileNotFoundError(f"no editable files discovered under {skeleton_dir}")
+    return found
+
+
+def _needs_seeded_baseline(files: dict[str, str]) -> bool:
+    return ("todo!(" in files.get("src/db.rs", "")) or ("todo!(" in files.get("src/distance.rs", ""))
+
+
 RESULT_COLUMNS = [
     "attempt",
     "phase",
@@ -255,7 +319,7 @@ def parse_args() -> argparse.Namespace:
         "--apply-incumbent",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Overwrite mutable files in the target repo skeleton with the final incumbent.",
+        help="Write final incumbent editable files back into bench_repo/skeleton (protected paths untouched).",
     )
     parser.add_argument("--codex-executable", type=str, default="codex")
     parser.add_argument("--codex-model", type=str, default="")
@@ -340,21 +404,14 @@ def _surface_sha(files: dict[str, str]) -> str:
     return digest.hexdigest()
 
 
-def _read_mutable_surface(skeleton_dir: Path) -> dict[str, str]:
-    files: dict[str, str] = {}
-    for relpath in MUTABLE_FILES:
-        path = skeleton_dir / relpath
-        if not path.exists():
-            raise FileNotFoundError(f"missing mutable file in skeleton: {path}")
-        files[relpath] = _read_text(path)
-    return files
-
-
 def _bootstrap_seed_surface(skeleton_dir: Path) -> dict[str, str]:
-    files = _read_mutable_surface(skeleton_dir)
-    if any("todo!(" in content for content in files.values()):
-        return {relpath: content.rstrip() + "\n" for relpath, content in SEEDED_BASELINE_FILES.items()}
-    return files
+    files = _discover_editable_skeleton_files(skeleton_dir)
+    if _needs_seeded_baseline(files):
+        merged = dict(files)
+        for relpath, content in SEEDED_BASELINE_FILES.items():
+            merged[relpath] = content.rstrip() + "\n"
+        return merged
+    return {relpath: content.rstrip() + "\n" for relpath, content in files.items()}
 
 
 def _read_readonly_context(skeleton_dir: Path) -> str:
@@ -421,7 +478,8 @@ def _resolve_base_vectors_file(bench_repo: Path, run_dir: Path) -> Path:
     return merged_path
 
 
-def _json_schema_for_briefs(worker_count: int) -> dict[str, Any]:
+def _json_schema_for_briefs(worker_count: int, *, incumbent_paths: Sequence[str]) -> dict[str, Any]:
+    path_enum = sorted(incumbent_paths)
     return {
         "type": "object",
         "additionalProperties": False,
@@ -443,7 +501,7 @@ def _json_schema_for_briefs(worker_count: int) -> dict[str, Any]:
                         "target_files": {
                             "type": "array",
                             "minItems": 1,
-                            "items": {"type": "string", "enum": list(MUTABLE_FILES)},
+                            "items": {"type": "string", "enum": path_enum},
                         },
                     },
                 },
@@ -452,7 +510,8 @@ def _json_schema_for_briefs(worker_count: int) -> dict[str, Any]:
     }
 
 
-def _json_schema_for_worker_output() -> dict[str, Any]:
+def _json_schema_for_worker_output(*, incumbent_paths: Sequence[str]) -> dict[str, Any]:
+    sorted_paths = sorted(incumbent_paths)
     return {
         "type": "object",
         "additionalProperties": False,
@@ -461,9 +520,9 @@ def _json_schema_for_worker_output() -> dict[str, Any]:
             "summary": {"type": "string"},
             "files": {
                 "type": "object",
-                "additionalProperties": False,
-                "required": list(MUTABLE_FILES),
-                "properties": {relpath: {"type": "string"} for relpath in MUTABLE_FILES},
+                "additionalProperties": {"type": "string"},
+                "required": sorted_paths,
+                "properties": {relpath: {"type": "string"} for relpath in sorted_paths},
             },
         },
     }
@@ -540,7 +599,9 @@ def _run_codex_exec(
     )
 
 
-def _parse_worker_briefs(raw_text: str, expected_count: int) -> list[WorkerBrief]:
+def _parse_worker_briefs(
+    raw_text: str, expected_count: int, *, allowed_target_paths: frozenset[str]
+) -> list[WorkerBrief]:
     payload = json.loads(raw_text)
     if not isinstance(payload, dict):
         raise ValueError("expected JSON object containing worker briefs")
@@ -554,9 +615,13 @@ def _parse_worker_briefs(raw_text: str, expected_count: int) -> list[WorkerBrief
         target_files = item.get("target_files")
         if not isinstance(target_files, list) or not target_files:
             raise ValueError("target_files must be a non-empty list")
-        target_tuple = tuple(str(x) for x in target_files)
-        if any(path not in MUTABLE_FILES for path in target_tuple):
-            raise ValueError(f"worker brief used unknown target file(s): {target_tuple}")
+        normalized: list[str] = []
+        for raw in target_files:
+            rel = _normalize_skeleton_rel_path(str(raw))
+            if rel not in allowed_target_paths:
+                raise ValueError(f"worker brief used unknown target file(s): {raw!r}")
+            normalized.append(rel)
+        target_tuple = tuple(normalized)
         brief = WorkerBrief(
             title=str(item.get("title", "")).strip(),
             family=str(item.get("family", "")).strip(),
@@ -570,7 +635,7 @@ def _parse_worker_briefs(raw_text: str, expected_count: int) -> list[WorkerBrief
     return briefs
 
 
-def _parse_worker_output(raw_text: str) -> tuple[str, dict[str, str]]:
+def _parse_worker_output(raw_text: str, *, incumbent_files: dict[str, str]) -> tuple[str, dict[str, str]]:
     payload = json.loads(raw_text)
     if not isinstance(payload, dict):
         raise ValueError("worker output must be a JSON object")
@@ -580,13 +645,20 @@ def _parse_worker_output(raw_text: str) -> tuple[str, dict[str, str]]:
         raise ValueError("worker output missing summary")
     if not isinstance(files_payload, dict):
         raise ValueError("worker output missing files object")
-    files: dict[str, str] = {}
-    for relpath in MUTABLE_FILES:
-        content = files_payload.get(relpath)
+    parsed: dict[str, str] = {}
+    for raw_key, content in files_payload.items():
+        rel = _normalize_skeleton_rel_path(str(raw_key))
+        if not _is_allowed_mutable_rel_path(rel):
+            raise ValueError(f"worker output used disallowed path: {raw_key!r}")
         if not isinstance(content, str) or not content.strip():
-            raise ValueError(f"worker output missing non-empty file content for {relpath}")
-        files[relpath] = content.rstrip() + "\n"
-    return summary, files
+            raise ValueError(f"worker output missing non-empty file content for {rel}")
+        parsed[rel] = content.rstrip() + "\n"
+    merged: dict[str, str] = dict(incumbent_files)
+    for rel in incumbent_files:
+        if rel not in parsed:
+            raise ValueError(f"worker output must include every incumbent path; missing {rel}")
+    merged.update(parsed)
+    return summary, merged
 
 
 def _review_notes_text(payload: dict[str, Any]) -> str:
@@ -912,18 +984,21 @@ def _coordinator_prompt(
         f"valid={row.get('valid')} failure={row.get('failure_type')} summary={row.get('change_summary')}"
         for row in recent_rows[-10:]
     ) or "- no recent attempts"
+    editable_list = ", ".join(sorted(mutable_files.keys()))
     mutable_text = "\n\n".join(
         f"## {relpath}\n```{ 'toml' if relpath.endswith('.toml') else 'rust' }\n{content.rstrip()}\n```"
-        for relpath, content in mutable_files.items()
+        for relpath, content in sorted(mutable_files.items())
     )
     return (
         "You are coordinating a small local multi-agent coding batch for vector-db-bench.\n\n"
         "Return a JSON object with one key, 'briefs', whose value is an array of exactly "
         f"{workers_per_round} distinct worker briefs.\n"
         "Each brief must contain: title, family, hypothesis, instructions, target_files.\n"
-        f"target_files must be chosen from: {', '.join(MUTABLE_FILES)}.\n"
-        "Bias toward exact-search and low-risk throughput wins first: memory layout, distance kernel, top-k selection, build profile, and query parallelism.\n"
-        "Do not propose HTTP/API wrapper edits or benchmark changes.\n\n"
+        f"target_files entries must be drawn from the current editable paths: {editable_list}.\n"
+        "You may assign workers to different subsets (e.g. distance kernel vs db layout vs new src modules).\n"
+        "Do not propose edits to protected files (see read-only context): they are not in the list above.\n"
+        "Bias toward recall-safe throughput: memory layout, distance kernel, top-k, indexing (IVF/HNSW/etc.), "
+        "parallelism, and release/profile tuning.\n\n"
         f"Program instructions:\n{program_text}\n\n"
         f"Current memory:\n{memory_text}\n\n"
         f"Reviewer notes:\n{reviewer_notes_text}\n\n"
@@ -949,16 +1024,20 @@ def _worker_prompt(
         f"failure={row.get('failure_type')} summary={row.get('change_summary')}"
         for row in recent_rows[-8:]
     ) or "- no recent attempts"
+    editable_sorted = sorted(mutable_files.keys())
     mutable_text = "\n\n".join(
         f"## {relpath}\n```{ 'toml' if relpath.endswith('.toml') else 'rust' }\n{content.rstrip()}\n```"
-        for relpath, content in mutable_files.items()
+        for relpath, content in sorted(mutable_files.items())
     )
     return (
         "You are one worker in a local Codex CLI optimization harness for vector-db-bench.\n"
         "Return a JSON object with keys 'summary' and 'files'.\n"
-        "The 'files' object must contain full updated contents for all mutable files: Cargo.toml, src/db.rs, src/distance.rs.\n"
-        "Only modify the mutable surface. Keep the HTTP/API contract and benchmark semantics unchanged.\n"
-        "Favor exact brute-force correctness first; do not gamble recall away for speculative ANN unless the brief explicitly asks for it.\n"
+        "The 'files' object must include full updated contents for EVERY current editable path "
+        f"(listed below: {', '.join(editable_sorted)}).\n"
+        "You may ADD new editable Rust modules under src/ (e.g. src/ivf.rs) by including extra keys in 'files'; "
+        "new files must be wired from db.rs/Cargo.toml as needed and must stay on the allowed paths "
+        "(src/**/*.rs, Cargo.toml, build.rs only).\n"
+        "Do not change protected API/server files (see read-only context). Preserve recall >= threshold and anti-cheat.\n"
         "Your code must compile in Rust release mode.\n\n"
         f"Assigned brief:\n"
         f"- title: {brief.title}\n"
@@ -1031,9 +1110,13 @@ def _worker_task(
     codex_model: str,
     codex_oss: bool,
     codex_local_provider: str,
+    incumbent_files: dict[str, str],
 ) -> tuple[int, CodexExecResult]:
     schema_path = round_dir / f"worker_{attempt:02d}.schema.json"
-    _write_json(schema_path, _json_schema_for_worker_output())
+    _write_json(
+        schema_path,
+        _json_schema_for_worker_output(incumbent_paths=sorted(incumbent_files.keys())),
+    )
     result = _run_codex_exec(
         executable=codex_executable,
         prompt=prompt,
@@ -1184,7 +1267,13 @@ def _run_harness(args: argparse.Namespace) -> int:
             )
             (round_dir / "coordinator_prompt.txt").write_text(coordinator_prompt, encoding="utf-8")
             coordinator_schema = round_dir / "coordinator.schema.json"
-            _write_json(coordinator_schema, _json_schema_for_briefs(args.workers_per_round))
+            _write_json(
+                coordinator_schema,
+                _json_schema_for_briefs(
+                    args.workers_per_round,
+                    incumbent_paths=sorted(incumbent_files.keys()),
+                ),
+            )
             coordinator_exec = _run_codex_exec(
                 executable=config.codex_executable,
                 prompt=coordinator_prompt,
@@ -1201,7 +1290,11 @@ def _run_harness(args: argparse.Namespace) -> int:
             (round_dir / "coordinator.stderr.log").write_text(coordinator_exec.stderr, encoding="utf-8")
             if coordinator_exec.returncode != 0:
                 raise RuntimeError(f"coordinator failed: {_tail(coordinator_exec.stderr or coordinator_exec.stdout)}")
-            worker_briefs = _parse_worker_briefs(coordinator_exec.last_message, args.workers_per_round)
+            worker_briefs = _parse_worker_briefs(
+                coordinator_exec.last_message,
+                args.workers_per_round,
+                allowed_target_paths=frozenset(incumbent_files.keys()),
+            )
             _write_json(round_dir / "worker_briefs.json", {"briefs": [brief.__dict__ for brief in worker_briefs]})
 
             proposal_results: dict[int, tuple[WorkerBrief, CodexExecResult | Exception]] = {}
@@ -1230,6 +1323,7 @@ def _run_harness(args: argparse.Namespace) -> int:
                         codex_model=config.codex_model,
                         codex_oss=config.codex_oss,
                         codex_local_provider=config.codex_local_provider,
+                        incumbent_files=incumbent_files,
                     )
                     future_map[future] = (attempt, brief)
                 for future in as_completed(future_map):
@@ -1302,7 +1396,10 @@ def _run_harness(args: argparse.Namespace) -> int:
                     rejected_rows.append(row)
                     continue
                 try:
-                    summary, candidate_files = _parse_worker_output(proposal.last_message)
+                    summary, candidate_files = _parse_worker_output(
+                        proposal.last_message,
+                        incumbent_files=incumbent_files,
+                    )
                 except Exception as exc:
                     row = {
                         "attempt": attempt,
