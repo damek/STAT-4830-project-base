@@ -23,19 +23,26 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import shutil
+import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
 from codex_cli_harness import (
     _bootstrap_seed_surface,
+    _materialize_workspace,
     _evaluate_candidate,
     _json_schema_for_worker_output,
     _parse_worker_output,
     _prepare_config,
+    _require_codex,
     _run_codex_exec,
+    _run_command,
     _score_result,
     _write_json,
 )
@@ -74,10 +81,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--attempts-per-prompt", type=int, default=1, help="How many Codex samples to request per prompt")
     parser.add_argument("--max-prompts", type=int, default=0, help="Optional cap for smoke tests; 0 means all prompts")
     parser.add_argument(
+        "--filter-mode",
+        choices=("compile", "benchmark"),
+        default="compile",
+        help="Acceptance filter for teacher rollouts (default: compile)",
+    )
+    parser.add_argument(
         "--only-valid",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Keep only recall+anti-cheat-valid benchmark results (default: true)",
+        help="For benchmark mode: keep only recall+anti-cheat-valid results (default: true)",
     )
     parser.add_argument("--min-qps", type=float, default=0.0, help="Reject accepted samples below this QPS threshold")
     parser.add_argument(
@@ -162,6 +175,102 @@ def _accepted(eval_result: Any, *, only_valid: bool, min_qps: float) -> bool:
     return bool(eval_result.build_ok and eval_result.runtime_ok and eval_result.qps >= min_qps)
 
 
+def _accepted_compile_only(eval_result: Any) -> bool:
+    return bool(eval_result.build_ok)
+
+
+def _prepare_compile_only_config(args: argparse.Namespace) -> SimpleNamespace:
+    bench_repo = args.bench_repo.resolve()
+    skeleton_dir = bench_repo / "skeleton"
+    if not skeleton_dir.exists():
+        raise FileNotFoundError(f"missing skeleton directory: {skeleton_dir}")
+    return SimpleNamespace(
+        bench_repo=bench_repo,
+        skeleton_dir=skeleton_dir,
+        build_timeout_seconds=args.build_timeout_seconds,
+        codex_executable=_require_codex(args.codex_executable),
+        codex_timeout_seconds=args.codex_timeout_seconds,
+        codex_sandbox=args.codex_sandbox,
+        codex_model=args.codex_model,
+        codex_oss=args.codex_oss,
+        codex_local_provider=args.codex_local_provider,
+    )
+
+
+def _evaluate_compile_only(
+    *,
+    candidate_files: dict[str, str],
+    workspace_dir: Path,
+    eval_dir: Path,
+    config: Any,
+) -> dict[str, Any]:
+    eval_dir.mkdir(parents=True, exist_ok=True)
+    started_at = time.time()
+    _materialize_workspace(skeleton_dir=config.skeleton_dir, workspace_dir=workspace_dir, files=candidate_files)
+
+    build_stdout_path = eval_dir / "build.stdout.log"
+    build_stderr_path = eval_dir / "build.stderr.log"
+    try:
+        build_proc = _run_command(
+            ["cargo", "build", "--release"],
+            cwd=workspace_dir,
+            timeout_seconds=config.build_timeout_seconds,
+            stdout_path=build_stdout_path,
+            stderr_path=build_stderr_path,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout_text = exc.stdout or ""
+        stderr_text = exc.stderr or ""
+        if isinstance(stdout_text, bytes):
+            stdout_text = stdout_text.decode("utf-8", errors="replace")
+        if isinstance(stderr_text, bytes):
+            stderr_text = stderr_text.decode("utf-8", errors="replace")
+        build_stdout_path.write_text(stdout_text, encoding="utf-8")
+        build_stderr_path.write_text(
+            stderr_text + f"\n[timeout_seconds]={config.build_timeout_seconds}\n",
+            encoding="utf-8",
+        )
+        return {
+            "build_ok": False,
+            "runtime_ok": False,
+            "valid": False,
+            "recall_passed": False,
+            "anti_cheat_passed": False,
+            "qps": 0.0,
+            "recall": 0.0,
+            "score": 0.0,
+            "failure_type": "build_timeout",
+            "runtime_seconds": time.time() - started_at,
+        }
+
+    if build_proc.returncode != 0:
+        return {
+            "build_ok": False,
+            "runtime_ok": False,
+            "valid": False,
+            "recall_passed": False,
+            "anti_cheat_passed": False,
+            "qps": 0.0,
+            "recall": 0.0,
+            "score": 0.0,
+            "failure_type": "build_error",
+            "runtime_seconds": time.time() - started_at,
+        }
+
+    return {
+        "build_ok": True,
+        "runtime_ok": False,
+        "valid": False,
+        "recall_passed": False,
+        "anti_cheat_passed": False,
+        "qps": 0.0,
+        "recall": 0.0,
+        "score": 1.0,
+        "failure_type": None,
+        "runtime_seconds": time.time() - started_at,
+    }
+
+
 def main() -> None:
     args = parse_args()
     args.run_dir = args.run_dir.resolve()
@@ -174,7 +283,7 @@ def main() -> None:
             "Run: python scripts/vector_db_bench/generate_rl_prompts.py --bench-repo ..."
         )
 
-    config = _prepare_config(args)
+    config = _prepare_config(args) if args.filter_mode == "benchmark" else _prepare_compile_only_config(args)
     incumbent_files = _bootstrap_seed_surface(config.skeleton_dir)
     schema_path = args.run_dir / "worker_output_schema.json"
     _write_json(
@@ -260,31 +369,57 @@ def main() -> None:
                     results_writer.writerow(result_row)
                     continue
 
-                eval_result = _evaluate_candidate(
-                    candidate_files=candidate_files,
-                    workspace_dir=attempt_dir / "workspace",
-                    eval_dir=attempt_dir / f"{args.eval_phase}_eval",
-                    config=config,
-                    inputs=config.proxy_inputs if args.eval_phase == "proxy" else config.strict_inputs,
-                )
-                accepted = _accepted(eval_result, only_valid=args.only_valid, min_qps=args.min_qps)
-                result_row.update(
-                    {
-                        "status": "accepted" if accepted else "discarded",
-                        "accepted": accepted,
-                        "build_ok": eval_result.build_ok,
-                        "runtime_ok": eval_result.runtime_ok,
-                        "valid": eval_result.valid,
-                        "recall_passed": eval_result.recall_passed,
-                        "anti_cheat_passed": eval_result.anti_cheat_passed,
-                        "qps": eval_result.qps,
-                        "recall": eval_result.recall,
-                        "score": _score_result(eval_result),
-                        "failure_type": eval_result.failure_type,
-                        "runtime_seconds": exec_result.runtime_seconds + eval_result.runtime_seconds,
-                        "change_summary": summary,
-                    }
-                )
+                if args.filter_mode == "benchmark":
+                    eval_result = _evaluate_candidate(
+                        candidate_files=candidate_files,
+                        workspace_dir=attempt_dir / "workspace",
+                        eval_dir=attempt_dir / f"{args.eval_phase}_eval",
+                        config=config,
+                        inputs=config.proxy_inputs if args.eval_phase == "proxy" else config.strict_inputs,
+                    )
+                    accepted = _accepted(eval_result, only_valid=args.only_valid, min_qps=args.min_qps)
+                    result_row.update(
+                        {
+                            "status": "accepted" if accepted else "discarded",
+                            "accepted": accepted,
+                            "build_ok": eval_result.build_ok,
+                            "runtime_ok": eval_result.runtime_ok,
+                            "valid": eval_result.valid,
+                            "recall_passed": eval_result.recall_passed,
+                            "anti_cheat_passed": eval_result.anti_cheat_passed,
+                            "qps": eval_result.qps,
+                            "recall": eval_result.recall,
+                            "score": _score_result(eval_result),
+                            "failure_type": eval_result.failure_type,
+                            "runtime_seconds": exec_result.runtime_seconds + eval_result.runtime_seconds,
+                            "change_summary": summary,
+                        }
+                    )
+                else:
+                    eval_result = _evaluate_compile_only(
+                        candidate_files=candidate_files,
+                        workspace_dir=attempt_dir / "workspace",
+                        eval_dir=attempt_dir / "compile_eval",
+                        config=config,
+                    )
+                    accepted = _accepted_compile_only(eval_result)
+                    result_row.update(
+                        {
+                            "status": "accepted" if accepted else "discarded",
+                            "accepted": accepted,
+                            "build_ok": eval_result["build_ok"],
+                            "runtime_ok": eval_result["runtime_ok"],
+                            "valid": eval_result["valid"],
+                            "recall_passed": eval_result["recall_passed"],
+                            "anti_cheat_passed": eval_result["anti_cheat_passed"],
+                            "qps": eval_result["qps"],
+                            "recall": eval_result["recall"],
+                            "score": eval_result["score"],
+                            "failure_type": eval_result["failure_type"],
+                            "runtime_seconds": exec_result.runtime_seconds + eval_result["runtime_seconds"],
+                            "change_summary": summary,
+                        }
+                    )
                 results_writer.writerow(result_row)
 
                 if not accepted:
@@ -300,19 +435,20 @@ def main() -> None:
                         ],
                         "metadata": {
                             "teacher": "codex-exec",
+                            "filter_mode": args.filter_mode,
                             "prompt_index": prompt_index,
                             "attempt": attempt,
                             "brief_title": record.get("brief_title", ""),
                             "brief_family": record.get("brief_family", ""),
                             "eval_phase": args.eval_phase,
                             "only_valid": args.only_valid,
-                            "build_ok": eval_result.build_ok,
-                            "runtime_ok": eval_result.runtime_ok,
-                            "valid": eval_result.valid,
-                            "recall_passed": eval_result.recall_passed,
-                            "anti_cheat_passed": eval_result.anti_cheat_passed,
-                            "qps": eval_result.qps,
-                            "recall": eval_result.recall,
+                            "build_ok": result_row["build_ok"],
+                            "runtime_ok": result_row["runtime_ok"],
+                            "valid": result_row["valid"],
+                            "recall_passed": result_row["recall_passed"],
+                            "anti_cheat_passed": result_row["anti_cheat_passed"],
+                            "qps": result_row["qps"],
+                            "recall": result_row["recall"],
                             "summary": summary,
                         },
                     }
@@ -330,6 +466,7 @@ def main() -> None:
         "bench_repo": str(config.bench_repo),
         "run_dir": str(args.run_dir),
         "output_path": str(output_path),
+        "filter_mode": args.filter_mode,
         "eval_phase": args.eval_phase,
         "only_valid": args.only_valid,
         "min_qps": args.min_qps,
