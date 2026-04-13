@@ -1,0 +1,6 @@
+# Copy to remote_target.txt (gitignored) and fill in your pod SSH target.
+# Line 1: SSH user@hostname (from Prime / RunPod "SSH" line)
+# Line 2: absolute path on that machine to the parameter_golf folder
+
+ubuntu@203.0.113.50
+/home/ubuntu/STAT-4830-AlphaGrad-project/parameter_golf

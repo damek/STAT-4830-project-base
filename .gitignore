@@ -15,3 +15,5 @@ data/airbench/autoresearch_runs/
 parameter_golf/.venv/
 parameter_golf/data/datasets/
 parameter_golf/data/tokenizers/
+parameter_golf/GPU_key.txt
+parameter_golf/remote_target.txt
