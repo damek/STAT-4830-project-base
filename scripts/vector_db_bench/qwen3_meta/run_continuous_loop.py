@@ -101,6 +101,12 @@ class RoundOutcome:
     notes: str
 
 
+@dataclass(frozen=True)
+class RunEvalProcessResult:
+    returncode: int
+    elapsed_secs: float
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bench-repo", type=Path, required=True, help="Path to a clean vector-db-bench clone on the benchmark host.")
@@ -324,7 +330,7 @@ def _run_eval_round(
     work_dir: Path,
     results_dir: Path,
     api_key: str,
-) -> subprocess.CompletedProcess[str]:
+) -> RunEvalProcessResult:
     env = os.environ.copy()
     env.update(
         {
@@ -344,20 +350,29 @@ def _run_eval_round(
     )
     command = ["bash", str(args.bench_repo / "scripts" / "run_eval.sh")]
     started = time.time()
-    proc = subprocess.run(
-        command,
-        cwd=args.bench_repo,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=args.round_timeout_seconds,
-    )
+    stdout_path = round_dir / "run_eval.stdout.log"
+    stderr_path = round_dir / "run_eval.stderr.log"
+    with stdout_path.open("w", encoding="utf-8") as stdout_handle, stderr_path.open(
+        "w", encoding="utf-8"
+    ) as stderr_handle:
+        proc = subprocess.Popen(
+            command,
+            cwd=args.bench_repo,
+            env=env,
+            stdout=stdout_handle,
+            stderr=stderr_handle,
+            text=True,
+        )
+        try:
+            returncode = proc.wait(timeout=args.round_timeout_seconds)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+            raise
     elapsed = time.time() - started
-    (round_dir / "run_eval.stdout.log").write_text(proc.stdout, encoding="utf-8")
-    (round_dir / "run_eval.stderr.log").write_text(
-        proc.stderr + f"\n[wall_clock_seconds]={elapsed:.2f}\n", encoding="utf-8"
-    )
-    return proc
+    with stderr_path.open("a", encoding="utf-8") as stderr_handle:
+        stderr_handle.write(f"\n[wall_clock_seconds]={elapsed:.2f}\n")
+    return RunEvalProcessResult(returncode=returncode, elapsed_secs=elapsed)
 
 
 def _load_eval_log(work_dir: Path) -> dict[str, Any]:
@@ -524,6 +539,10 @@ def _write_round_summary(path: Path, payload: dict[str, Any]) -> None:
     _write_json(path, payload)
 
 
+def _write_current_status(path: Path, payload: dict[str, Any]) -> None:
+    _write_json(path, payload)
+
+
 def _round_row(outcome: RoundOutcome) -> dict[str, Any]:
     final_eval = outcome.final_eval
     return {
@@ -610,6 +629,7 @@ def main() -> int:
         timeout_seconds=args.build_timeout_seconds,
     )
     writer = _build_results_writer(results_path, append=append_results)
+    current_status_path = args.run_root / "current_status.json"
     try:
         start_round = _next_round_index(args.run_root)
         for round_index in range(start_round, args.rounds + 1):
@@ -643,8 +663,36 @@ def main() -> int:
             agent_last_recall = 0.0
             notes = ""
             incumbent_qps_before = incumbent.qps
+            _write_current_status(
+                current_status_path,
+                {
+                    "round": round_index,
+                    "phase": "starting_round",
+                    "seed_source": seed_source,
+                    "incumbent_qps_before": incumbent_qps_before,
+                    "incumbent_recall_before": incumbent.recall,
+                    "work_dir": str(work_dir),
+                    "round_dir": str(round_dir),
+                    "updated_at": datetime.now().isoformat(),
+                },
+            )
 
             try:
+                _write_current_status(
+                    current_status_path,
+                    {
+                        "round": round_index,
+                        "phase": "running_eval",
+                        "seed_source": seed_source,
+                        "incumbent_qps_before": incumbent_qps_before,
+                        "incumbent_recall_before": incumbent.recall,
+                        "work_dir": str(work_dir),
+                        "round_dir": str(round_dir),
+                        "stdout_log": str(round_dir / "run_eval.stdout.log"),
+                        "stderr_log": str(round_dir / "run_eval.stderr.log"),
+                        "updated_at": datetime.now().isoformat(),
+                    },
+                )
                 proc = _run_eval_round(
                     args=args,
                     round_dir=round_dir,
@@ -662,6 +710,21 @@ def main() -> int:
                     agent_last_qps, agent_last_recall = _benchmark_fields(eval_log.get("last_benchmark"))
                     tool_calls_used = int(eval_log.get("tool_calls_used", 0) or 0)
                     tool_calls_total = int(eval_log.get("tool_calls_total", args.max_tool_calls) or args.max_tool_calls)
+                    _write_current_status(
+                        current_status_path,
+                        {
+                            "round": round_index,
+                            "phase": "final_evaluating",
+                            "seed_source": seed_source,
+                            "agent_best_qps": agent_best_qps,
+                            "agent_last_qps": agent_last_qps,
+                            "tool_calls_used": tool_calls_used,
+                            "tool_calls_total": tool_calls_total,
+                            "work_dir": str(work_dir),
+                            "round_dir": str(round_dir),
+                            "updated_at": datetime.now().isoformat(),
+                        },
+                    )
                     final_eval = _evaluate_final_workspace(
                         args=args,
                         work_dir=work_dir,
@@ -748,6 +811,19 @@ def main() -> int:
                 args=args,
                 incumbent=incumbent,
                 completed_rounds=round_index,
+            )
+            _write_current_status(
+                current_status_path,
+                {
+                    "round": round_index,
+                    "phase": "completed_round",
+                    "status": status,
+                    "promoted": promoted,
+                    "incumbent_qps_after": incumbent.qps,
+                    "incumbent_recall_after": incumbent.recall,
+                    "round_dir": str(round_dir),
+                    "updated_at": datetime.now().isoformat(),
+                },
             )
             if status == "crash" and not args.continue_on_error:
                 break
