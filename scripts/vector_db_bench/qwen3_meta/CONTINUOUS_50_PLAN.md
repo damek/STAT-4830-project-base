@@ -173,7 +173,12 @@ Version 1 should work even without this file.
 ## Prompt Policy
 First version should minimize prompt drift:
 - keep the same upstream system prompt
-- keep the same upstream opening user message
+- keep the same upstream opening user message for round 1
+- for rounds 2+, inject one additional short user message via preseeded
+  `session_context.json`:
+  - current incumbent QPS / recall
+  - the fact that the workspace is already seeded from the incumbent
+  - the objective to beat the incumbent while keeping recall >= 0.95
 
 Optional future extension:
 - prepend a short research memo as an additional user message

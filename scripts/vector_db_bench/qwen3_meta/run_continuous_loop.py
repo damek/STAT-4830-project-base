@@ -263,6 +263,60 @@ def _seed_round_skeleton(seed_dir: Path, skeleton_dir: Path) -> None:
     _copy_tree(seed_dir, skeleton_dir)
 
 
+def _chat_message(role: str, content: str) -> dict[str, Any]:
+    return {
+        "role": role,
+        "content": content,
+        "tool_calls": None,
+        "tool_call_id": None,
+        "reasoning_content": None,
+    }
+
+
+def _build_handoff_message(incumbent: IncumbentState) -> str:
+    source_text = (
+        "the current incumbent implementation"
+        if incumbent.source_round > 0
+        else "the current blank/seed incumbent"
+    )
+    round_text = f" from round {incumbent.source_round}" if incumbent.source_round > 0 else ""
+    return (
+        f"You are starting from {source_text}{round_text}. "
+        f"The incumbent's current best kept score is {incumbent.qps:.2f} QPS at recall {incumbent.recall:.4f}. "
+        "Your objective is to improve QPS while keeping recall at or above 0.95. "
+        "Only changes that beat the incumbent on the final benchmark will be kept. "
+        "Build on the existing implementation rather than starting over."
+    )
+
+
+def _prepare_resumed_workdir(
+    *,
+    seed_dir: Path,
+    work_dir: Path,
+    system_prompt_path: Path,
+    max_tool_calls: int,
+    extra_user_message: str,
+) -> None:
+    _copy_tree(seed_dir, work_dir)
+    system_prompt = system_prompt_path.read_text(encoding="utf-8")
+    session_context = {
+        "tool_calls_used": 0,
+        "tool_calls_total": max_tool_calls,
+        "messages": [
+            _chat_message("system", system_prompt),
+            _chat_message("user", "Begin. Read the project files and start implementing."),
+            _chat_message("user", extra_user_message),
+        ],
+        "last_benchmark": None,
+        "best_benchmark": None,
+        "call_log": [],
+    }
+    (work_dir / "session_context.json").write_text(
+        json.dumps(session_context),
+        encoding="utf-8",
+    )
+
+
 def _run_eval_round(
     *,
     args: argparse.Namespace,
@@ -568,6 +622,14 @@ def main() -> int:
                 "blank_seed" if incumbent.source_round == 0 else f"incumbent_round_{incumbent.source_round:03d}"
             )
             _seed_round_skeleton(incumbent_dir, args.bench_repo / "skeleton")
+            if round_index > 1:
+                _prepare_resumed_workdir(
+                    seed_dir=incumbent_dir,
+                    work_dir=work_dir,
+                    system_prompt_path=args.bench_repo / "agent" / "system_prompt.txt",
+                    max_tool_calls=args.max_tool_calls,
+                    extra_user_message=_build_handoff_message(incumbent),
+                )
 
             round_started = time.time()
             final_eval: BenchEvalResult | None = None
