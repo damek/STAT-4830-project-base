@@ -1,0 +1,9 @@
+id = "h0"
+description = "Benchmark-faithful baseline harness with no customizations."
+attempts_per_eval = 3
+official_tools_only = true
+
+extra_user_messages = []
+added_helper_tools = []
+seed_files_dir = ""
+notes = "Uses the official scaffold, official prompt stack, official tool schema, and official result collection logic."
