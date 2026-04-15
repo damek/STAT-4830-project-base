@@ -48,6 +48,7 @@ DEFAULT_RUN_ROOT = (
     / "qwen3_meta"
     / f"continuous_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 )
+DEFAULT_CPU_CORES = "0-3"
 RESULT_COLUMNS = [
     "round",
     "seed_source",
@@ -143,7 +144,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--server-url", type=str, default="http://127.0.0.1:8080")
     parser.add_argument("--server-bin-name", type=str, default="vector-db-skeleton")
     parser.add_argument("--benchmark-bin-name", type=str, default="vector-db-benchmark")
-    parser.add_argument("--cpu-cores", type=str, default="")
+    parser.add_argument(
+        "--cpu-cores",
+        type=str,
+        default=DEFAULT_CPU_CORES,
+        help="CPU core list for both inner run_eval and outer final evaluation. Defaults to the official benchmark pinning 0-3.",
+    )
     parser.add_argument("--data-dir", type=Path, default=None)
     parser.add_argument("--base-vectors", type=Path, default=None)
     parser.add_argument("--query-vectors", type=Path, default=None)
