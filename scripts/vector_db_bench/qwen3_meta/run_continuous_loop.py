@@ -128,13 +128,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-tool-calls", type=int, default=50)
     parser.add_argument("--recall-threshold", type=float, default=0.95)
     parser.add_argument("--concurrency", type=int, default=4)
-    parser.add_argument("--warmup", type=int, default=1000)
+    parser.add_argument("--warmup", type=int, default=100)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--strict-max-queries", type=int, default=0, help="0 means the full query set.")
-    parser.add_argument("--build-timeout-seconds", type=int, default=60 * 20)
-    parser.add_argument("--benchmark-timeout-seconds", type=int, default=60 * 20)
+    parser.add_argument("--build-timeout-seconds", type=int, default=300)
+    parser.add_argument("--benchmark-timeout-seconds", type=int, default=600)
     parser.add_argument("--startup-timeout-seconds", type=int, default=30)
-    parser.add_argument("--round-timeout-seconds", type=int, default=60 * 60)
+    parser.add_argument(
+        "--round-timeout-seconds",
+        type=int,
+        default=0,
+        help="Outer round timeout in seconds. 0 disables the outer timeout and relies on the official per-tool limits.",
+    )
     parser.add_argument("--server-url", type=str, default="http://127.0.0.1:8080")
     parser.add_argument("--server-bin-name", type=str, default="vector-db-skeleton")
     parser.add_argument("--benchmark-bin-name", type=str, default="vector-db-benchmark")
@@ -255,18 +260,45 @@ def _load_incumbent_state(state_path: Path) -> IncumbentState:
     )
 
 
+def _parse_round_index(path: Path) -> int | None:
+    try:
+        return int(path.name.split("_", 1)[1])
+    except (IndexError, ValueError):
+        return None
+
+
+def _round_summary_path(round_dir: Path) -> Path:
+    return round_dir / "round_summary.json"
+
+
+def _round_is_complete(round_dir: Path) -> bool:
+    return _round_summary_path(round_dir).exists()
+
+
 def _next_round_index(run_root: Path) -> int:
     existing: list[int] = []
     for path in run_root.glob("round_*"):
-        try:
-            existing.append(int(path.name.split("_", 1)[1]))
-        except (IndexError, ValueError):
-            continue
-    return max(existing, default=0) + 1
+        idx = _parse_round_index(path)
+        if idx is not None:
+            existing.append(idx)
+
+    if not existing:
+        return 1
+
+    for idx in sorted(existing):
+        round_dir = run_root / f"round_{idx:03d}"
+        if not _round_is_complete(round_dir):
+            return idx
+
+    return max(existing) + 1
 
 
 def _seed_round_skeleton(seed_dir: Path, skeleton_dir: Path) -> None:
     _copy_tree(seed_dir, skeleton_dir)
+
+
+def _should_resume_existing_round(round_dir: Path, work_dir: Path) -> bool:
+    return (not _round_is_complete(round_dir)) and (work_dir / "session_context.json").exists()
 
 
 def _chat_message(role: str, content: str) -> dict[str, Any]:
@@ -364,7 +396,10 @@ def _run_eval_round(
             text=True,
         )
         try:
-            returncode = proc.wait(timeout=args.round_timeout_seconds)
+            if args.round_timeout_seconds > 0:
+                returncode = proc.wait(timeout=args.round_timeout_seconds)
+            else:
+                returncode = proc.wait()
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=5)
@@ -637,12 +672,13 @@ def main() -> int:
             work_dir = round_dir / "workdir"
             results_dir = round_dir / args.results_dir_name
             round_dir.mkdir(parents=True, exist_ok=True)
+            resume_existing_round = _should_resume_existing_round(round_dir, work_dir)
 
             seed_source = (
                 "blank_seed" if incumbent.source_round == 0 else f"incumbent_round_{incumbent.source_round:03d}"
             )
             _seed_round_skeleton(incumbent_dir, args.bench_repo / "skeleton")
-            if round_index > 1:
+            if round_index > 1 and not resume_existing_round:
                 _prepare_resumed_workdir(
                     seed_dir=incumbent_dir,
                     work_dir=work_dir,
