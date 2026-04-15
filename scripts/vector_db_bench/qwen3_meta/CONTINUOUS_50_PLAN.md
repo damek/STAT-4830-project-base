@@ -37,7 +37,8 @@ The outer harness is responsible for:
 3. running the upstream agent
 4. parsing the round result
 5. promoting or rejecting the result
-6. writing compact round summaries
+6. appending a ledger row to `results.tsv`
+7. writing compact round summaries only as needed
 7. repeating for 50 rounds
 
 ## Initialization Policy
@@ -59,9 +60,21 @@ Canonical incumbent directory should include:
 Recommended path:
 - `data/vector_db_bench/qwen3_meta/continuous_50/incumbent/`
 
+This should be treated as the primary compressed memory of the search, mirroring
+autoresearch's use of the current branch state as the kept best code.
+
 ## Keep / Reject Rule
+Version 1 should promote based on an **independent final evaluation of the
+round's final workspace**, not the agent's internal `best_benchmark` snapshot.
+
+Reason:
+- the upstream agent only backs up `src/` to `src_best_qps/`
+- it does not snapshot `Cargo.toml` / `Cargo.lock`
+- the internal "best" result may come from an intermediate benchmark run rather
+  than the final buildable workspace we want to carry forward
+
 Promote the round result if:
-- the round's **best strict-valid QPS** is greater than incumbent QPS
+- the round's **independent final strict-valid QPS** is greater than incumbent QPS
 - recall remains valid
 - anti-cheat remains valid
 
@@ -79,14 +92,13 @@ Each round directory should contain:
 - benchmark outputs
 - profiling outputs
 - promoted candidate snapshot if applicable
-- round summary
+- optional round summary
 
 Recommended layout:
 
 ```text
 data/vector_db_bench/qwen3_meta/continuous_50/
   incumbent/
-  memory.md
   results.tsv
   summary.json
   round_001/
@@ -109,20 +121,54 @@ Per round, record:
 - `promotion_reason`
 - `notes`
 
-## Memory Carryover
+## Autoresearch-Style Memory Model
+The memory model should follow Karpathy's autoresearch pattern closely.
+
+### Primary memory: incumbent state
+- current incumbent code is the main memory
+- successful changes become the new seed for future rounds
+- rejected changes are discarded and do not persist
+
+### Secondary memory: `results.tsv`
+- one row per round
+- durable record of:
+  - round
+  - score
+  - status
+  - short description of the idea
+- this is the main structured experiment history the outer loop can inspect
+
+Suggested columns:
+
+```text
+round	best_qps	final_qps	recall	status	description
+```
+
+where:
+- `status` is one of `keep`, `discard`, or `crash`
+
+### Tertiary memory: latest round logs
+- `agent_log.jsonl`
+- `eval_log.json`
+- benchmark outputs
+- profiling outputs
+
+These provide detailed debugging context for the most recent round when needed.
+
+### Optional memory: `memory.md`
 Do **not** carry full transcripts between rounds.
 
-Carry only compact research memory:
+If needed, add a small handoff memo only after the basic loop works:
 - current incumbent QPS / recall
 - recent successful ideas
 - recent failed ideas
-- notable compile/runtime failures
+- repeated compile/runtime failures
 - next likely moves
 
-Recommended file:
+Recommended optional path:
 - `data/vector_db_bench/qwen3_meta/continuous_50/memory.md`
 
-Initial implementation can keep memory minimal.
+Version 1 should work even without this file.
 
 ## Prompt Policy
 First version should minimize prompt drift:
@@ -133,6 +179,10 @@ Optional future extension:
 - prepend a short research memo as an additional user message
 
 But that should come after the seeded-incumbent loop works correctly.
+The first implementation should rely mainly on:
+- incumbent code
+- `results.tsv`
+- latest logs
 
 ## Benchmark Repo Choice
 Use the **clean benchmark clone** on the Linux host, not the dirty submodule checkout.
@@ -173,6 +223,7 @@ Responsibilities:
 - compare against incumbent
 - promote or reject
 - append to `results.tsv`
+- preserve latest logs per round
 
 ### Step 2
 Run a 3-round pilot
