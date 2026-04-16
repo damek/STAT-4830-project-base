@@ -257,6 +257,7 @@ def _write_revision_toml(*, revision_dir: Path, revision_id: str, description: s
 
         extra_user_messages = []
         added_helper_tools = []
+        helper_tools_module = ""
         seed_files_dir = ""
         seed_files_mount_dir = "src"
         notes = {notes!r}
@@ -383,9 +384,30 @@ def _write_context_bundle(
                 "extra_user_messages layered on top of the official prompt base",
                 "seed files copied into worker-readable scope, typically under src/",
                 "build, benchmark, and profiling summaries",
-                "helper tools added around the official toolset, with matching runtime support",
+                "helper tools added around the official toolset via a revision-local helper_tools.py module",
                 "attempt orchestration and harness-side runtime behavior",
             ],
+            "helper_tool_contract": {
+                "revision_toml_fields": {
+                    "added_helper_tools": "optional list of helper tool names to expose",
+                    "helper_tools_module": "optional relative path to a Python module, usually helper_tools.py",
+                },
+                "module_contract": {
+                    "entrypoint": "register_tools(registry)",
+                    "registry_api": "registry.add_tool(name=..., description=..., parameters=<JSON schema>, handler=<callable>)",
+                    "handler_signature": "handler(context, arguments_dict)",
+                    "context_methods": [
+                        "read_file(path)",
+                        "write_file(path, content)",
+                        "list_files(path)",
+                        "build_project()",
+                        "run_benchmark(concurrency=None, warmup=None, max_queries=None)",
+                        "run_correctness_test()",
+                        "run_profiling(duration=None)",
+                        "get_status()",
+                    ],
+                },
+            },
         },
     )
     write_json(context_root / "incumbent_summary.json", incumbent_summary.__dict__)
@@ -453,8 +475,16 @@ def _build_codex_prompt(*, candidate_revision_id: str, parent_revision_id: str, 
         - extra user messages layered on top of the official prompt base
         - seed files copied into worker-readable scope, including strategy.md or other context files under src/
         - build, benchmark, and profiling summaries
-        - helper tools added around the official toolset, together with matching runtime support
+        - helper tools added around the official toolset via a revision-local helper_tools.py module
         - harness-side orchestration and runtime behavior
+
+        Helper-tool contract:
+        - declare helper tool names in revision.toml under added_helper_tools
+        - point helper_tools_module at a Python file, typically helper_tools.py in the revision directory
+        - the helper tool module must define register_tools(registry)
+        - register helper tools with registry.add_tool(name=..., description=..., parameters=<JSON schema object>, handler=<callable>)
+        - helper tool handlers are called as handler(context, arguments_dict)
+        - helper tool context exposes: read_file, write_file, list_files, build_project, run_benchmark, run_correctness_test, run_profiling, get_status
 
         Record to inspect first:
         - {context_root}/task.json
@@ -532,6 +562,7 @@ def _validate_workspace(workspace: Path) -> None:
             "py_compile",
             "scripts/vector_db_bench/qwen3_meta/meta_harness_common.py",
             "scripts/vector_db_bench/qwen3_meta/run_meta_harness_eval.py",
+            "scripts/vector_db_bench/qwen3_meta/meta_harness_runtime.py",
         ],
         cwd=workspace,
         check=True,

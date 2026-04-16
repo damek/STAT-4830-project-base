@@ -62,6 +62,7 @@ class RevisionConfig:
     official_tools_only: bool
     extra_user_messages: tuple[str, ...]
     added_helper_tools: tuple[str, ...]
+    helper_tools_module: Path | None
     seed_files_dir: Path | None
     seed_files_mount_dir: str | None
     notes: str
@@ -177,20 +178,40 @@ def load_revision_config(revisions_root: Path, revision_id: str) -> RevisionConf
     seed_files_dir = (revision_dir / seed_files_raw).resolve() if seed_files_raw else None
     seed_files_mount_raw = str(payload.get("seed_files_mount_dir", "") or "").strip()
     seed_files_mount_dir = seed_files_mount_raw or ("src" if seed_files_dir is not None else None)
+    helper_tools_raw = str(payload.get("helper_tools_module", "") or "").strip()
+    helper_tools_module = (revision_dir / helper_tools_raw).resolve() if helper_tools_raw else None
+    default_helper_tools_module = revision_dir / "helper_tools.py"
+    if helper_tools_module is None and default_helper_tools_module.exists():
+        helper_tools_module = default_helper_tools_module.resolve()
     if seed_files_dir is not None and not seed_files_dir.exists():
         raise FileNotFoundError(f"seed_files_dir not found for revision {revision_id}: {seed_files_dir}")
+    if helper_tools_module is not None and not helper_tools_module.exists():
+        raise FileNotFoundError(
+            f"helper_tools_module not found for revision {revision_id}: {helper_tools_module}"
+        )
+    added_helper_tools = tuple(str(item) for item in payload.get("added_helper_tools", []))
+    if added_helper_tools and helper_tools_module is None:
+        raise ValueError(
+            f"revision {revision_id} declares added_helper_tools but no helper_tools_module "
+            "was provided. Add helper_tools_module = 'helper_tools.py' or remove added_helper_tools."
+        )
     return RevisionConfig(
         revision_id=str(payload.get("id", revision_id)),
         description=str(payload.get("description", "")),
         attempts_per_eval=int(payload.get("attempts_per_eval", 3)),
         official_tools_only=bool(payload.get("official_tools_only", True)),
         extra_user_messages=tuple(str(item) for item in payload.get("extra_user_messages", [])),
-        added_helper_tools=tuple(str(item) for item in payload.get("added_helper_tools", [])),
+        added_helper_tools=added_helper_tools,
+        helper_tools_module=helper_tools_module,
         seed_files_dir=seed_files_dir,
         seed_files_mount_dir=seed_files_mount_dir,
         notes=str(payload.get("notes", "")),
         revision_dir=revision_dir,
     )
+
+
+def revision_uses_custom_runtime(revision: RevisionConfig) -> bool:
+    return revision.helper_tools_module is not None or bool(revision.added_helper_tools)
 
 
 def _chat_message(role: str, content: str) -> dict[str, Any]:
@@ -305,7 +326,11 @@ def prepare_workdir(
     `session_context.json` so the upstream agent resumes from that initial state.
     """
 
-    if revision.seed_files_dir is None and not revision.extra_user_messages:
+    if (
+        revision.seed_files_dir is None
+        and not revision.extra_user_messages
+        and not revision_uses_custom_runtime(revision)
+    ):
         if work_dir.exists():
             shutil.rmtree(work_dir)
         return
@@ -333,6 +358,62 @@ def prepare_workdir(
         "call_log": [],
     }
     (work_dir / "session_context.json").write_text(json.dumps(session_context), encoding="utf-8")
+
+
+def run_revision_attempt(
+    *,
+    revision: RevisionConfig,
+    bench_repo: Path,
+    work_dir: Path,
+    results_dir: Path,
+    model_name: str,
+    base_url: str,
+    api_key: str,
+    model_id: str,
+    thinking_mode: str,
+    reasoning_effort: str,
+    api_interval_ms: int,
+    cpu_cores: str,
+    data_dir: Path,
+    max_tool_calls: int,
+) -> AttemptProcessResult:
+    if revision_uses_custom_runtime(revision):
+        try:
+            from meta_harness_runtime import run_custom_attempt
+        except ModuleNotFoundError:  # pragma: no cover - package import path
+            from .meta_harness_runtime import run_custom_attempt
+
+        return run_custom_attempt(
+            revision=revision,
+            bench_repo=bench_repo,
+            work_dir=work_dir,
+            results_dir=results_dir,
+            model_name=model_name,
+            base_url=base_url,
+            api_key=api_key,
+            model_id=model_id,
+            thinking_mode=thinking_mode,
+            reasoning_effort=reasoning_effort,
+            api_interval_ms=api_interval_ms,
+            cpu_cores=cpu_cores,
+            data_dir=data_dir,
+            max_tool_calls=max_tool_calls,
+        )
+    return run_official_attempt(
+        bench_repo=bench_repo,
+        work_dir=work_dir,
+        results_dir=results_dir,
+        model_name=model_name,
+        base_url=base_url,
+        api_key=api_key,
+        model_id=model_id,
+        thinking_mode=thinking_mode,
+        reasoning_effort=reasoning_effort,
+        api_interval_ms=api_interval_ms,
+        cpu_cores=cpu_cores,
+        data_dir=data_dir,
+        max_tool_calls=max_tool_calls,
+    )
 
 
 def run_official_attempt(

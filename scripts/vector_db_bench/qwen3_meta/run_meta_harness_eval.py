@@ -37,7 +37,7 @@ from meta_harness_common import (
     load_dotenv,
     load_revision_config,
     prepare_workdir,
-    run_official_attempt,
+    run_revision_attempt,
     validate_revision_worker_contract,
     write_json,
 )
@@ -85,6 +85,7 @@ def _revision_payload(revision: object) -> dict:
     payload = asdict(revision)
     payload["revision_dir"] = str(payload["revision_dir"])
     payload["seed_files_dir"] = str(payload["seed_files_dir"]) if payload["seed_files_dir"] else None
+    payload["helper_tools_module"] = str(payload["helper_tools_module"]) if payload["helper_tools_module"] else None
     return payload
 
 
@@ -139,12 +140,6 @@ def main() -> int:
     attempts = args.attempts if args.attempts is not None else revision.attempts_per_eval
     if attempts <= 0:
         raise SystemExit("--attempts must be positive")
-
-    if revision.added_helper_tools:
-        raise SystemExit(
-            "Helper tools are declared in this revision but helper-tool execution is not implemented yet. "
-            "Keep added_helper_tools empty for now."
-        )
 
     api_key = args.api_key or ""
     if not api_key:
@@ -215,7 +210,8 @@ def main() -> int:
                 revision=revision,
                 max_tool_calls=args.max_tool_calls,
             )
-            process = run_official_attempt(
+            process = run_revision_attempt(
+                revision=revision,
                 bench_repo=bench_repo,
                 work_dir=work_dir,
                 results_dir=results_dir,
