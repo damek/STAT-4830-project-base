@@ -115,6 +115,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--codex-model", type=str, default="")
     parser.add_argument("--codex-oss", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--codex-local-provider", choices=("", "ollama", "lmstudio"), default="")
+    parser.add_argument(
+        "--codex-enable-web-search",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable Codex web search for outer-loop revision authoring.",
+    )
     return parser.parse_args()
 
 
@@ -171,6 +177,7 @@ def _run_codex_exec(
     model: str,
     use_oss: bool,
     local_provider: str,
+    enable_web_search: bool,
 ) -> CodexExecResult:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     argv = [
@@ -188,6 +195,8 @@ def _run_codex_exec(
     ]
     if model:
         argv.extend(["-m", model])
+    if enable_web_search:
+        argv.extend(["--enable", "web_search_request"])
     if use_oss:
         argv.append("--oss")
     if local_provider:
@@ -498,6 +507,7 @@ def _build_codex_prompt(*, candidate_revision_id: str, parent_revision_id: str, 
         Revision standard:
         - choose the intervention best supported by the record
         - prompt/context revisions, strategy files, summary files, helper tools, and orchestration changes are all valid
+        - you may use online research when it helps you choose or implement a stronger harness revision
         - implement a concrete mechanism that can change the worker's behavior in a measurable way
         - keep this as a fresh-start harness experiment rather than a solution-carryover experiment
 
@@ -674,6 +684,7 @@ def main() -> int:
             "cpu_cores": args.cpu_cores,
             "incumbent_branch": incumbent_branch,
             "initial_incumbent_summary": incumbent_summary.__dict__,
+            "codex_enable_web_search": args.codex_enable_web_search,
         },
     )
 
@@ -720,6 +731,7 @@ def main() -> int:
                     model=args.codex_model,
                     use_oss=args.codex_oss,
                     local_provider=args.codex_local_provider,
+                    enable_web_search=args.codex_enable_web_search,
                 )
                 write_json(
                     codex_outputs_root / f"{candidate_revision_id}_exec.json",
