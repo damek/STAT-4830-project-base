@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Custom Meta-Harness runtime with additive helper-tool support.
+"""Custom Meta-Harness runtime with additive helper-tool and retry support.
 
-This runtime is used only for revisions that declare helper tools. It keeps the
-official toolset intact and appends revision-local helper tools on top.
+This runtime is used for revisions that declare helper tools or custom
+zero-completion retry behavior. It keeps the official toolset intact and
+appends revision-local helper tools on top when present.
 """
 
 from __future__ import annotations
@@ -35,6 +36,11 @@ SERVER_POLL_INTERVAL_MS = 0.2
 RECALL_THRESHOLD = 0.95
 DEFAULT_BENCHMARK_BIN_NAME = "vector-db-benchmark"
 DEFAULT_SYSTEM_PROMPT_PATH = Path("agent/system_prompt.txt")
+ZERO_COMPLETION_RETRY_NUDGE = (
+    "Your previous response contained zero completion tokens. "
+    "Continue the run by either calling an appropriate tool or giving a concise next step. "
+    "Do not repeat prior file reads unless needed."
+)
 
 
 JsonDict = dict[str, Any]
@@ -108,6 +114,16 @@ class RuntimeState:
         if benchmark.get("recall_passed") and benchmark.get("qps", 0.0) > 0.0:
             if self.best_benchmark is None or float(benchmark.get("qps", 0.0)) > float(self.best_benchmark.get("qps", 0.0)):
                 self.best_benchmark = benchmark
+
+
+def _chat_message(role: str, content: str) -> JsonDict:
+    return {
+        "role": role,
+        "content": content,
+        "tool_calls": None,
+        "tool_call_id": None,
+        "reasoning_content": None,
+    }
 
 
 class AgentLogger:
@@ -364,6 +380,7 @@ class MetaHarnessRuntime:
         self.logger = AgentLogger(self.work_dir)
         self.helper_context = HelperToolContext(self)
         self.finish_summary = ""
+        self.zero_completion_retry_limit = max(0, self.revision.zero_completion_retry_limit)
 
     def run(self) -> AttemptProcessResult:
         self.results_dir.mkdir(parents=True, exist_ok=True)
@@ -401,6 +418,7 @@ class MetaHarnessRuntime:
         return AttemptProcessResult(returncode=returncode, elapsed_secs=time.time() - started)
 
     def _run_loop(self) -> str:
+        zero_completion_retries = 0
         while True:
             if self.state.tool_calls_used >= self.state.tool_calls_total:
                 self._log_stderr(
@@ -425,6 +443,13 @@ class MetaHarnessRuntime:
             reasoning_content = response.get("reasoning_content") or response.get("reasoning")
             tool_calls = response.get("tool_calls")
             content = response.get("content")
+            completion_tokens = _maybe_int(response_meta.get("completion_tokens"))
+            is_zero_completion_empty = (
+                completion_tokens == 0
+                and not content
+                and not reasoning_content
+                and (tool_calls is None or len(tool_calls) == 0)
+            )
 
             if tool_calls is not None:
                 if not tool_calls:
@@ -436,11 +461,25 @@ class MetaHarnessRuntime:
                         duration_ms=duration_ms,
                     )
                     if content:
+                        zero_completion_retries = 0
                         self.messages.append(self._assistant_content_message(content, reasoning_content))
+                        self._save_session_context()
+                        continue
+                    if (
+                        is_zero_completion_empty
+                        and zero_completion_retries < self.zero_completion_retry_limit
+                    ):
+                        zero_completion_retries += 1
+                        self._log_stderr(
+                            "[meta-runtime] Zero-completion response "
+                            f"({zero_completion_retries}/{self.zero_completion_retry_limit}); retrying."
+                        )
+                        self.messages.append(_chat_message("user", ZERO_COMPLETION_RETRY_NUDGE))
                         self._save_session_context()
                         continue
                     return "empty_response"
 
+                zero_completion_retries = 0
                 self.logger.log_llm_response(
                     has_tool_calls=True,
                     tool_call_count=len(tool_calls),
@@ -475,6 +514,7 @@ class MetaHarnessRuntime:
                 continue
 
             if content:
+                zero_completion_retries = 0
                 self.logger.log_llm_response(
                     has_tool_calls=False,
                     tool_call_count=0,
@@ -493,6 +533,18 @@ class MetaHarnessRuntime:
                 thinking_content=reasoning_content,
                 duration_ms=duration_ms,
             )
+            if (
+                is_zero_completion_empty
+                and zero_completion_retries < self.zero_completion_retry_limit
+            ):
+                zero_completion_retries += 1
+                self._log_stderr(
+                    "[meta-runtime] Zero-completion response "
+                    f"({zero_completion_retries}/{self.zero_completion_retry_limit}); retrying."
+                )
+                self.messages.append(_chat_message("user", ZERO_COMPLETION_RETRY_NUDGE))
+                self._save_session_context()
+                continue
             return "empty_response"
 
     def _persist_after_finish(self, result: JsonDict) -> None:

@@ -2,6 +2,7 @@ id = "h0"
 description = "Benchmark-faithful baseline harness with no customizations."
 attempts_per_eval = 3
 official_tools_only = true
+zero_completion_retry_limit = 0
 
 extra_user_messages = []
 added_helper_tools = []

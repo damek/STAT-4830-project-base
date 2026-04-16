@@ -60,6 +60,7 @@ class RevisionConfig:
     description: str
     attempts_per_eval: int
     official_tools_only: bool
+    zero_completion_retry_limit: int
     extra_user_messages: tuple[str, ...]
     added_helper_tools: tuple[str, ...]
     helper_tools_module: Path | None
@@ -200,6 +201,7 @@ def load_revision_config(revisions_root: Path, revision_id: str) -> RevisionConf
         description=str(payload.get("description", "")),
         attempts_per_eval=int(payload.get("attempts_per_eval", 3)),
         official_tools_only=bool(payload.get("official_tools_only", True)),
+        zero_completion_retry_limit=int(payload.get("zero_completion_retry_limit", 0)),
         extra_user_messages=tuple(str(item) for item in payload.get("extra_user_messages", [])),
         added_helper_tools=added_helper_tools,
         helper_tools_module=helper_tools_module,
@@ -211,7 +213,11 @@ def load_revision_config(revisions_root: Path, revision_id: str) -> RevisionConf
 
 
 def revision_uses_custom_runtime(revision: RevisionConfig) -> bool:
-    return revision.helper_tools_module is not None or bool(revision.added_helper_tools)
+    return (
+        revision.helper_tools_module is not None
+        or bool(revision.added_helper_tools)
+        or revision.zero_completion_retry_limit > 0
+    )
 
 
 def _chat_message(role: str, content: str) -> dict[str, Any]:
@@ -526,6 +532,8 @@ def attempt_outcome_from_logs(
         notes_parts.append("official_tools_only")
     if revision.added_helper_tools:
         notes_parts.append(f"added_helper_tools={','.join(revision.added_helper_tools)}")
+    if revision.zero_completion_retry_limit > 0:
+        notes_parts.append(f"zero_completion_retry_limit={revision.zero_completion_retry_limit}")
     if result_source and result_source != "none":
         notes_parts.append(f"result_source={result_source}")
 

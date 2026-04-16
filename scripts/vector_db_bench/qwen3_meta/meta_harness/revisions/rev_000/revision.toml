@@ -2,6 +2,7 @@ id = "rev_000"
 description = "Neutral Meta-Harness placeholder revision."
 attempts_per_eval = 3
 official_tools_only = true
+zero_completion_retry_limit = 0
 
 extra_user_messages = []
 added_helper_tools = []
