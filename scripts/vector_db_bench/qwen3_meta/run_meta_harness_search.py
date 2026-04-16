@@ -301,6 +301,42 @@ def _tail_file(src: Path, dst: Path, lines: int = 120) -> None:
     dst.write_text("\n".join(content[-lines:]) + "\n", encoding="utf-8")
 
 
+def _copy_glob(src_root: Path, dst_root: Path, pattern: str) -> None:
+    for src in sorted(src_root.glob(pattern)):
+        if not src.is_file():
+            continue
+        rel = src.relative_to(src_root)
+        _copy_if_exists(src, dst_root / rel)
+
+
+def _write_leaderboard_target(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        textwrap.dedent(
+            """\
+            # Leaderboard Target
+
+            Use this file as an ambition anchor while you inspect the incumbent record.
+
+            High-level target:
+            - beat the current harness incumbent on fresh best-of-3 evaluation
+            - move Qwen toward leaderboard-class search behavior rather than small exact-scan plateaus
+
+            Public top-solution profile to keep in mind:
+            - Claude Opus 4.6 reaches leaderboard-class performance with an IVF-style approximate index rather than exact full scan
+            - the public report highlights large cluster counts, tuned probe counts, AVX-512 batch distance kernels, and contiguous cluster-oriented storage
+            - the key lesson is not one fixed algorithm; it is that strong runs discover materially different search strategies early and spend tool budget moving toward them
+
+            What this implies for the harness:
+            - help Qwen search aggressively enough to discover stronger design directions
+            - help Qwen use the record, benchmarks, and profiling outputs to choose higher-leverage edits
+            - treat the official toolset as the fixed base, and improve the context, summaries, orchestration, and optional helper-tool layer around it
+            """
+        ),
+        encoding="utf-8",
+    )
+
+
 def _write_context_bundle(
     *,
     workspace: Path,
@@ -321,6 +357,15 @@ def _write_context_bundle(
             "iteration": iteration,
             "incumbent_revision_id": incumbent_revision_id,
             "incumbent_eval_run_root": str(incumbent_eval_root),
+            "objective": {
+                "primary": "Raise Qwen's fresh-start best-of-3 score on vector-db-bench.",
+                "secondary": [
+                    "Increase valid-attempt rate.",
+                    "Improve median valid QPS.",
+                    "Reduce wasted benchmark and profiling loops.",
+                ],
+                "search_style": "Use the incumbent record to choose the strongest justified harness intervention.",
+            },
             "benchmark_faithful_constraints": {
                 "official_tools_unchanged": True,
                 "fresh_blank_scaffold_every_attempt": True,
@@ -328,6 +373,13 @@ def _write_context_bundle(
                 "cpu_cores": "0-3",
                 "recall_threshold": 0.95,
             },
+            "available_harness_surfaces": [
+                "extra_user_messages layered on top of the official prompt base",
+                "seed files copied into the fresh workdir, including strategy.md or summary artifacts",
+                "build, benchmark, and profiling summaries",
+                "helper tools added around the official toolset, with matching runtime support",
+                "attempt orchestration and harness-side runtime behavior",
+            ],
         },
     )
     write_json(context_root / "incumbent_summary.json", incumbent_summary.__dict__)
@@ -338,6 +390,25 @@ def _write_context_bundle(
     for stderr_log in sorted(incumbent_eval_root.glob("attempt_*/run_eval.stderr.log")):
         rel = stderr_log.relative_to(incumbent_eval_root).with_suffix(".stderr.tail.txt")
         _tail_file(stderr_log, context_root / rel)
+    for agent_log in sorted(incumbent_eval_root.glob("attempt_*/workdir/agent_log.jsonl")):
+        rel = agent_log.relative_to(incumbent_eval_root).with_suffix(".tail.jsonl")
+        _tail_file(agent_log, context_root / rel, lines=200)
+    for eval_log in sorted(incumbent_eval_root.glob("attempt_*/workdir/eval_log.json")):
+        rel = eval_log.relative_to(incumbent_eval_root)
+        _copy_if_exists(eval_log, context_root / rel)
+    for attempt_dir in sorted(incumbent_eval_root.glob("attempt_*")):
+        if not attempt_dir.is_dir():
+            continue
+        rel_root = context_root / attempt_dir.name
+        _copy_glob(attempt_dir / "results", rel_root / "results", "*.json")
+        _copy_glob(attempt_dir / "workdir" / "profiling", rel_root / "profiling", "*.txt")
+        _copy_glob(attempt_dir / "workdir" / "profiling", rel_root / "profiling", "*.json")
+        flamegraphs = sorted((attempt_dir / "workdir" / "profiling").glob("*.svg"))
+        if flamegraphs:
+            manifest = "\n".join(path.name for path in flamegraphs) + "\n"
+            (rel_root / "profiling" / "flamegraph_manifest.txt").parent.mkdir(parents=True, exist_ok=True)
+            (rel_root / "profiling" / "flamegraph_manifest.txt").write_text(manifest, encoding="utf-8")
+    _write_leaderboard_target(context_root / "leaderboard_target.md")
     _copy_if_exists(search_run_root / "search_results.tsv", context_root / "search_results.tsv")
     return context_root
 
@@ -347,11 +418,10 @@ def _build_codex_prompt(*, candidate_revision_id: str, parent_revision_id: str, 
         f"""\
         You are authoring a new Meta-Harness revision for vector-db-bench.
 
-        Goal:
-        - improve Qwen's fresh-start benchmark performance under the official 50-tool-call setup
-        - do not carry worker solution code across attempts
-        - keep the official benchmark tools present and unchanged
-        - you may add helper tools only if you also implement runtime support for them
+        Objective:
+        - raise Qwen's fresh-start best-of-3 score on vector-db-bench
+        - use the incumbent record to choose the highest-leverage harness change for the next evaluation block
+        - close the gap between the current incumbent and leaderboard-class behavior
 
         Parent revision:
         - {parent_revision_id}
@@ -359,23 +429,41 @@ def _build_codex_prompt(*, candidate_revision_id: str, parent_revision_id: str, 
         Candidate revision to author:
         - {candidate_revision_id}
 
-        Context to inspect first:
+        Benchmark-faithful invariants to preserve:
+        - blank scaffold start on every worker attempt
+        - official system prompt base
+        - official opening user message base
+        - official tool set remains present with official semantics
+        - 50 tool calls per worker attempt
+        - CPU_CORES=0-3
+        - fresh-start evaluation over 3 independent attempts
+
+        Harness surfaces available for this revision:
+        - extra user messages layered on top of the official prompt base
+        - seed files copied into the fresh workdir, including strategy.md or other worker-readable context files
+        - build, benchmark, and profiling summaries
+        - helper tools added around the official toolset, together with matching runtime support
+        - harness-side orchestration and runtime behavior
+
+        Record to inspect first:
         - {context_root}/task.json
         - {context_root}/incumbent_summary.json
         - {context_root}/incumbent_results.tsv
-        - any attempt summaries and stderr tails under {context_root}
+        - {context_root}/leaderboard_target.md
+        - attempt summaries, stderr tails, agent log tails, benchmark outputs, profiling outputs, and eval logs under {context_root}
         - scripts/vector_db_bench/qwen3_meta/META_HARNESS_ADAPTATION.md
         - scripts/vector_db_bench/qwen3_meta/META_HARNESS_REV_000.md
 
-        Constraints:
-        - preserve benchmark-faithful worker settings: blank scaffold, official system prompt, official opening user message, official tool budget, CPU_CORES=0-3
-        - do not pre-bake solution code carryover
-        - keep changes focused and defensible
+        Revision standard:
+        - choose the intervention best supported by the record
+        - prompt/context revisions, strategy files, summary files, helper tools, and orchestration changes are all valid
+        - implement a concrete mechanism that can change the worker's behavior in a measurable way
+        - keep this as a fresh-start harness experiment rather than a solution-carryover experiment
 
         Required output:
         - edit files in this workspace to create a concrete candidate revision
         - at minimum, ensure scripts/vector_db_bench/qwen3_meta/meta_harness/revisions/{candidate_revision_id}/revision.toml exists and is accurate
-        - if you change runtime behavior, keep it within the allowed harness surface
+        - if you add helper tools or runtime behavior, implement the matching harness-side support in this workspace
         - write/update harness_notes.md in the candidate revision with the hypothesis and intended causal mechanism
 
         In your final message:
