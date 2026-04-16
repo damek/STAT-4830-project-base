@@ -101,7 +101,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-url", type=str, default="https://openrouter.ai/api/v1")
     parser.add_argument("--model-id", type=str, default="qwen/qwen3-coder-next")
     parser.add_argument("--api-key", type=str, default="")
-    parser.add_argument("--thinking-mode", type=str, default="openrouter-openai")
+    parser.add_argument("--thinking-mode", type=str, default="none")
     parser.add_argument("--reasoning-effort", type=str, default="medium")
     parser.add_argument("--api-interval-ms", type=int, default=0)
 

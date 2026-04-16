@@ -167,6 +167,34 @@ class AgentLogger:
             }
         )
 
+    def log_llm_response_meta(
+        self,
+        *,
+        response_id: str | None,
+        response_model: str | None,
+        finish_reason: str | None,
+        native_finish_reason: str | None,
+        prompt_tokens: int | None,
+        completion_tokens: int | None,
+        total_tokens: int | None,
+        reasoning_tokens: int | None,
+    ) -> None:
+        self._log(
+            {
+                "event": "llm_response_meta",
+                "iteration": self.iteration,
+                "response_id": response_id,
+                "response_model": response_model,
+                "finish_reason": finish_reason,
+                "native_finish_reason": native_finish_reason,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+                "reasoning_tokens": reasoning_tokens,
+                "timestamp": _now_rfc3339(),
+            }
+        )
+
     def log_tool_call(self, index: int, tool: str, arguments: str, tool_call_id: str) -> None:
         self._log(
             {
@@ -383,7 +411,17 @@ class MetaHarnessRuntime:
                 return "tool_call_limit"
 
             self.logger.log_llm_request(len(self.messages))
-            response, duration_ms = self._call_llm()
+            response, response_meta, duration_ms = self._call_llm()
+            self.logger.log_llm_response_meta(
+                response_id=response_meta.get("response_id"),
+                response_model=response_meta.get("response_model"),
+                finish_reason=response_meta.get("finish_reason"),
+                native_finish_reason=response_meta.get("native_finish_reason"),
+                prompt_tokens=_maybe_int(response_meta.get("prompt_tokens")),
+                completion_tokens=_maybe_int(response_meta.get("completion_tokens")),
+                total_tokens=_maybe_int(response_meta.get("total_tokens")),
+                reasoning_tokens=_maybe_int(response_meta.get("reasoning_tokens")),
+            )
             reasoning_content = response.get("reasoning_content") or response.get("reasoning")
             tool_calls = response.get("tool_calls")
             content = response.get("content")
@@ -463,7 +501,7 @@ class MetaHarnessRuntime:
             self.state.consider_benchmark(final_benchmark)
         self._save_session_context()
 
-    def _call_llm(self) -> tuple[JsonDict, int]:
+    def _call_llm(self) -> tuple[JsonDict, JsonDict, int]:
         if self.last_llm_call_at is not None and self.api_interval_ms > 0:
             elapsed_ms = int((time.time() - self.last_llm_call_at) * 1000)
             if elapsed_ms < self.api_interval_ms:
@@ -475,7 +513,7 @@ class MetaHarnessRuntime:
             "tools": self._tool_definitions(),
             "tool_choice": "auto",
         }
-        request_body.update(_build_thinking_extra(self.thinking_mode, self.reasoning_effort))
+        request_body.update(_build_thinking_extra(self.model_id, self.thinking_mode, self.reasoning_effort))
         body = json.dumps(request_body).encode("utf-8")
         url = f"{self.base_url}/chat/completions"
         last_error = "LLM API call failed"
@@ -502,7 +540,20 @@ class MetaHarnessRuntime:
                     last_error = "LLM API returned empty choices"
                     continue
                 self.last_llm_call_at = time.time()
-                return choices[0]["message"], int((time.time() - started) * 1000)
+                choice = choices[0]
+                usage = payload.get("usage") or {}
+                completion_details = usage.get("completion_tokens_details") or {}
+                meta = {
+                    "response_id": payload.get("id"),
+                    "response_model": payload.get("model"),
+                    "finish_reason": choice.get("finish_reason"),
+                    "native_finish_reason": choice.get("native_finish_reason"),
+                    "prompt_tokens": usage.get("prompt_tokens"),
+                    "completion_tokens": usage.get("completion_tokens"),
+                    "total_tokens": usage.get("total_tokens"),
+                    "reasoning_tokens": completion_details.get("reasoning_tokens"),
+                }
+                return choice["message"], meta, int((time.time() - started) * 1000)
             except urllib.error.HTTPError as exc:
                 body_text = exc.read().decode("utf-8", errors="replace")
                 last_error = f"LLM API error (status {exc.code}): {body_text}"
@@ -953,7 +1004,9 @@ def _official_tool_definitions() -> tuple[JsonDict, ...]:
     )
 
 
-def _build_thinking_extra(thinking_mode: str, reasoning_effort: str) -> JsonDict:
+def _build_thinking_extra(model_id: str, thinking_mode: str, reasoning_effort: str) -> JsonDict:
+    if model_id.strip().lower() == "qwen/qwen3-coder-next":
+        return {}
     mode = thinking_mode.strip().lower().replace("_", "-")
     if mode in {"false", "off", "none", ""}:
         return {}
