@@ -172,6 +172,7 @@ def _run_codex_exec(
     prompt: str,
     cwd: Path,
     output_path: Path,
+    events_path: Path,
     timeout_seconds: int,
     sandbox: str,
     model: str,
@@ -180,12 +181,14 @@ def _run_codex_exec(
     enable_web_search: bool,
 ) -> CodexExecResult:
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    events_path.parent.mkdir(parents=True, exist_ok=True)
     argv = [
         executable,
         "exec",
         "--ephemeral",
         "--color",
         "never",
+        "--json",
         "--sandbox",
         sandbox,
         "-C",
@@ -212,6 +215,7 @@ def _run_codex_exec(
         cwd=cwd,
         timeout=timeout_seconds,
     )
+    events_path.write_text(proc.stdout, encoding="utf-8")
     last_message = output_path.read_text(encoding="utf-8") if output_path.exists() else ""
     return CodexExecResult(
         argv=argv,
@@ -721,11 +725,13 @@ def main() -> int:
                 prompt_path.parent.mkdir(parents=True, exist_ok=True)
                 prompt_path.write_text(prompt, encoding="utf-8")
                 output_path = codex_outputs_root / f"{candidate_revision_id}_last_message.txt"
+                events_path = codex_outputs_root / f"{candidate_revision_id}_events.jsonl"
                 codex_result = _run_codex_exec(
                     executable=args.codex_executable,
                     prompt=prompt,
                     cwd=candidate_worktree,
                     output_path=output_path,
+                    events_path=events_path,
                     timeout_seconds=args.codex_timeout_seconds,
                     sandbox=args.codex_sandbox,
                     model=args.codex_model,
@@ -738,6 +744,7 @@ def main() -> int:
                     {
                         "argv": codex_result.argv,
                         "returncode": codex_result.returncode,
+                        "events_path": str(events_path),
                         "stdout": codex_result.stdout,
                         "stderr": codex_result.stderr,
                         "last_message": codex_result.last_message,
