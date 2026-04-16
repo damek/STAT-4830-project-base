@@ -36,6 +36,7 @@ SERVER_POLL_INTERVAL_MS = 0.2
 RECALL_THRESHOLD = 0.95
 DEFAULT_BENCHMARK_BIN_NAME = "vector-db-benchmark"
 DEFAULT_SYSTEM_PROMPT_PATH = Path("agent/system_prompt.txt")
+DEFAULT_OPENROUTER_PROVIDER_IGNORE = ("ionstream",)
 ZERO_COMPLETION_RETRY_NUDGE = (
     "Your previous response contained zero completion tokens. "
     "Continue the run by either calling an appropriate tool or giving a concise next step. "
@@ -566,6 +567,7 @@ class MetaHarnessRuntime:
             "tool_choice": "auto",
         }
         request_body.update(_build_thinking_extra(self.model_id, self.thinking_mode, self.reasoning_effort))
+        request_body.update(_build_provider_extra(self.base_url))
         body = json.dumps(request_body).encode("utf-8")
         url = f"{self.base_url}/chat/completions"
         last_error = "LLM API call failed"
@@ -1073,6 +1075,16 @@ def _build_thinking_extra(model_id: str, thinking_mode: str, reasoning_effort: s
     if mode == "doubao":
         return {"reasoning_effort": reasoning_effort}
     return {}
+
+
+def _build_provider_extra(base_url: str) -> JsonDict:
+    if "openrouter.ai" not in base_url.lower():
+        return {}
+    return {
+        "provider": {
+            "ignore": list(DEFAULT_OPENROUTER_PROVIDER_IGNORE),
+        }
+    }
 
 
 def _now_rfc3339() -> str:
