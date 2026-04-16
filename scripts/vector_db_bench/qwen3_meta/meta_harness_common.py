@@ -6,13 +6,14 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
 import tomllib
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 
@@ -49,6 +50,9 @@ RESULT_COLUMNS = [
     "notes",
 ]
 
+WORKER_READABLE_ROOTS = ("src", "benchmarks", "profiling")
+WORKER_READABLE_FILES = ("Cargo.toml",)
+
 
 @dataclass(frozen=True)
 class RevisionConfig:
@@ -59,6 +63,7 @@ class RevisionConfig:
     extra_user_messages: tuple[str, ...]
     added_helper_tools: tuple[str, ...]
     seed_files_dir: Path | None
+    seed_files_mount_dir: str | None
     notes: str
     revision_dir: Path
 
@@ -170,6 +175,8 @@ def load_revision_config(revisions_root: Path, revision_id: str) -> RevisionConf
     payload = tomllib.loads(revision_path.read_text(encoding="utf-8"))
     seed_files_raw = str(payload.get("seed_files_dir", "") or "").strip()
     seed_files_dir = (revision_dir / seed_files_raw).resolve() if seed_files_raw else None
+    seed_files_mount_raw = str(payload.get("seed_files_mount_dir", "") or "").strip()
+    seed_files_mount_dir = seed_files_mount_raw or ("src" if seed_files_dir is not None else None)
     if seed_files_dir is not None and not seed_files_dir.exists():
         raise FileNotFoundError(f"seed_files_dir not found for revision {revision_id}: {seed_files_dir}")
     return RevisionConfig(
@@ -180,6 +187,7 @@ def load_revision_config(revisions_root: Path, revision_id: str) -> RevisionConf
         extra_user_messages=tuple(str(item) for item in payload.get("extra_user_messages", [])),
         added_helper_tools=tuple(str(item) for item in payload.get("added_helper_tools", [])),
         seed_files_dir=seed_files_dir,
+        seed_files_mount_dir=seed_files_mount_dir,
         notes=str(payload.get("notes", "")),
         revision_dir=revision_dir,
     )
@@ -195,12 +203,88 @@ def _chat_message(role: str, content: str) -> dict[str, Any]:
     }
 
 
-def _copy_seed_files(seed_files_dir: Path, work_dir: Path) -> None:
+def _is_worker_readable_relpath(path: PurePosixPath) -> bool:
+    normalized = path.as_posix().lstrip("./")
+    if normalized in WORKER_READABLE_FILES:
+        return True
+    return any(
+        normalized == root or normalized.startswith(f"{root}/")
+        for root in WORKER_READABLE_ROOTS
+    )
+
+
+def _iter_relative_files(root: Path) -> set[str]:
+    files: set[str] = set()
+    for path in root.rglob("*"):
+        if path.is_file():
+            files.add(path.relative_to(root).as_posix())
+    return files
+
+
+def _looks_like_worker_path_ref(token: str) -> bool:
+    stripped = token.strip()
+    if not stripped or " " in stripped or "\n" in stripped:
+        return False
+    if stripped.startswith(("{", "[", "(")) or "*" in stripped:
+        return False
+    return "/" in stripped or stripped.endswith((".md", ".rs", ".toml", ".json", ".txt", ".svg"))
+
+
+def _extract_worker_path_refs(messages: tuple[str, ...]) -> set[str]:
+    refs: set[str] = set()
+    for message in messages:
+        for token in re.findall(r"`([^`\n]+)`", message):
+            if _looks_like_worker_path_ref(token):
+                refs.add(token.strip())
+    return refs
+
+
+def validate_revision_worker_contract(*, blank_seed_dir: Path, revision: RevisionConfig) -> None:
+    available_paths = _iter_relative_files(blank_seed_dir)
+
+    if revision.seed_files_dir is not None:
+        if not revision.seed_files_mount_dir:
+            raise ValueError(
+                f"revision {revision.revision_id} declares seed_files_dir but no seed_files_mount_dir"
+            )
+        mount_root = PurePosixPath(revision.seed_files_mount_dir)
+        if not _is_worker_readable_relpath(mount_root):
+            raise ValueError(
+                f"revision {revision.revision_id} mounts seed files under unreadable path "
+                f"{revision.seed_files_mount_dir!r}; use a worker-readable scope such as 'src'"
+            )
+        for path in sorted(revision.seed_files_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            rel = PurePosixPath(path.relative_to(revision.seed_files_dir).as_posix())
+            dest = mount_root / rel
+            if not _is_worker_readable_relpath(dest):
+                raise ValueError(
+                    f"revision {revision.revision_id} seeds {rel.as_posix()!r} to unreadable path "
+                    f"{dest.as_posix()!r}"
+                )
+            available_paths.add(dest.as_posix())
+
+    for ref in sorted(_extract_worker_path_refs(revision.extra_user_messages)):
+        ref_path = PurePosixPath(ref)
+        if not _is_worker_readable_relpath(ref_path):
+            raise ValueError(
+                f"revision {revision.revision_id} references unreadable worker path {ref!r} "
+                f"in extra_user_messages"
+            )
+        if ref not in available_paths:
+            raise ValueError(
+                f"revision {revision.revision_id} references {ref!r} in extra_user_messages, "
+                "but that file will not exist in the fresh attempt workspace"
+            )
+
+
+def _copy_seed_files(seed_files_dir: Path, work_dir: Path, mount_dir: str) -> None:
     for path in sorted(seed_files_dir.rglob("*")):
         if not path.is_file():
             continue
         rel = path.relative_to(seed_files_dir)
-        dest = work_dir / rel
+        dest = work_dir / mount_dir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, dest)
 
@@ -228,7 +312,11 @@ def prepare_workdir(
 
     copy_tree(blank_seed_dir, work_dir)
     if revision.seed_files_dir is not None:
-        _copy_seed_files(revision.seed_files_dir, work_dir)
+        if not revision.seed_files_mount_dir:
+            raise ValueError(
+                f"revision {revision.revision_id} declares seed_files_dir but no seed_files_mount_dir"
+            )
+        _copy_seed_files(revision.seed_files_dir, work_dir, revision.seed_files_mount_dir)
 
     system_prompt = (bench_repo / "agent" / "system_prompt.txt").read_text(encoding="utf-8")
     messages = [

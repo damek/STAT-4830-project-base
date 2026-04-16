@@ -38,6 +38,7 @@ from meta_harness_common import (
     load_revision_config,
     prepare_workdir,
     run_official_attempt,
+    validate_revision_worker_contract,
     write_json,
 )
 
@@ -173,6 +174,7 @@ def main() -> int:
 
     run_root.mkdir(parents=True, exist_ok=True)
     ensure_blank_seed(blank_seed_dir, blank_seed_source)
+    validate_revision_worker_contract(blank_seed_dir=blank_seed_dir, revision=revision)
 
     write_json(
         config_path,

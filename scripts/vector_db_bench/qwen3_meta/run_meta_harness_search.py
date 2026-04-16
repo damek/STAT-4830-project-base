@@ -258,6 +258,7 @@ def _write_revision_toml(*, revision_dir: Path, revision_id: str, description: s
         extra_user_messages = []
         added_helper_tools = []
         seed_files_dir = ""
+        seed_files_mount_dir = "src"
         notes = {notes!r}
         """
     )
@@ -373,9 +374,14 @@ def _write_context_bundle(
                 "cpu_cores": "0-3",
                 "recall_threshold": 0.95,
             },
+            "worker_file_scope": {
+                "readable": ["src/*", "Cargo.toml", "benchmarks/*", "profiling/*"],
+                "writable": ["src/* (except protected files)", "Cargo.toml"],
+                "seed_file_guidance": "Mount worker-facing seed files inside src/, e.g. src/strategy.md.",
+            },
             "available_harness_surfaces": [
                 "extra_user_messages layered on top of the official prompt base",
-                "seed files copied into the fresh workdir, including strategy.md or summary artifacts",
+                "seed files copied into worker-readable scope, typically under src/",
                 "build, benchmark, and profiling summaries",
                 "helper tools added around the official toolset, with matching runtime support",
                 "attempt orchestration and harness-side runtime behavior",
@@ -438,9 +444,14 @@ def _build_codex_prompt(*, candidate_revision_id: str, parent_revision_id: str, 
         - CPU_CORES=0-3
         - fresh-start evaluation over 3 independent attempts
 
+        Worker file scope:
+        - readable: src/*, Cargo.toml, benchmarks/*, profiling/*
+        - writable: src/* except protected files, plus Cargo.toml
+        - seed worker-facing files inside readable scope, typically under src/ such as src/strategy.md
+
         Harness surfaces available for this revision:
         - extra user messages layered on top of the official prompt base
-        - seed files copied into the fresh workdir, including strategy.md or other worker-readable context files
+        - seed files copied into worker-readable scope, including strategy.md or other context files under src/
         - build, benchmark, and profiling summaries
         - helper tools added around the official toolset, together with matching runtime support
         - harness-side orchestration and runtime behavior
