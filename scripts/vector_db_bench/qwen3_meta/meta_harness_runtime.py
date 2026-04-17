@@ -9,6 +9,7 @@ appends revision-local helper tools on top when present.
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import os
 import signal
@@ -40,7 +41,12 @@ DEFAULT_OPENROUTER_PROVIDER_IGNORE = ("ionstream",)
 META_HARNESS_STATE_DIRNAME = ".meta_harness"
 BEST_CANDIDATE_DIRNAME = "best_candidate"
 BEST_CANDIDATE_MANIFEST = "best_candidate_manifest.json"
+MAINLINE_DIRNAME = "mainline"
+MAINLINE_MANIFEST = "mainline_manifest.json"
+EXPERIMENTS_DIRNAME = "experiments"
+CAMPAIGN_STATE_FILENAME = "campaign_state.json"
 PROGRESS_STATE_FILENAME = "progress_state.json"
+MAX_IDENTICAL_BENCHMARK_FAILURES = 3
 ZERO_COMPLETION_RETRY_NUDGE = (
     "Your previous response contained zero completion tokens. "
     "Continue the run by either calling an appropriate tool or giving a concise next step. "
@@ -357,6 +363,27 @@ class HelperToolContext:
     def checkpoint_best_candidate(self, *, note: str = "") -> JsonDict:
         return self.runtime._checkpoint_best_candidate(note)
 
+    def checkpoint_mainline(self, *, note: str = "") -> JsonDict:
+        return self.runtime._checkpoint_mainline(note)
+
+    def restore_mainline(self) -> JsonDict:
+        return self.runtime._restore_mainline()
+
+    def fork_experiment(self, *, label: str = "") -> JsonDict:
+        return self.runtime._fork_experiment(label)
+
+    def promote_experiment(self, *, label: str = "") -> JsonDict:
+        return self.runtime._promote_experiment(label)
+
+    def discard_experiment(self, *, label: str = "") -> JsonDict:
+        return self.runtime._discard_experiment(label)
+
+    def get_campaign_state(self) -> JsonDict:
+        return self.runtime._campaign_state_payload()
+
+    def get_call_log(self) -> list[JsonDict]:
+        return list(self.runtime.state.call_log)
+
     def get_progress_state(self) -> JsonDict:
         return self.runtime._progress_state_payload()
 
@@ -399,6 +426,7 @@ class MetaHarnessRuntime:
         self.stderr_handle = None
         self.stdout_handle = None
         self.state = RuntimeState.new(max_tool_calls)
+        self.benchmark_failure_guard: JsonDict = {}
         self.last_llm_call_at: float | None = None
         self.benchmark_bin = self._ensure_benchmark_binary()
         self.helper_tools = self._load_helper_tools()
@@ -593,6 +621,20 @@ class MetaHarnessRuntime:
     def _best_candidate_manifest_path(self) -> Path:
         return self._meta_harness_state_dir() / BEST_CANDIDATE_MANIFEST
 
+    def _mainline_dir(self) -> Path:
+        return self._meta_harness_state_dir() / MAINLINE_DIRNAME
+
+    def _mainline_manifest_path(self) -> Path:
+        return self._meta_harness_state_dir() / MAINLINE_MANIFEST
+
+    def _experiments_dir(self) -> Path:
+        path = self._meta_harness_state_dir() / EXPERIMENTS_DIRNAME
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _campaign_state_path(self) -> Path:
+        return self._meta_harness_state_dir() / CAMPAIGN_STATE_FILENAME
+
     def _progress_state_path(self) -> Path:
         return self._meta_harness_state_dir() / PROGRESS_STATE_FILENAME
 
@@ -619,6 +661,160 @@ class MetaHarnessRuntime:
         except Exception:  # noqa: BLE001
             return None
         return payload if isinstance(payload, dict) else None
+
+    def _load_json_dict(self, path: Path) -> JsonDict | None:
+        if not path.exists():
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def _load_mainline_manifest(self) -> JsonDict | None:
+        return self._load_json_dict(self._mainline_manifest_path())
+
+    def _load_campaign_state(self) -> JsonDict:
+        payload = self._load_json_dict(self._campaign_state_path()) or {}
+        active_branch = str(payload.get("active_branch", "mainline") or "mainline")
+        experiments = payload.get("experiments")
+        if not isinstance(experiments, dict):
+            experiments = {}
+        return {
+            "active_branch": active_branch,
+            "experiments": experiments,
+            "last_promotion_at": payload.get("last_promotion_at"),
+        }
+
+    def _write_campaign_state(self, payload: JsonDict) -> None:
+        self._campaign_state_path().write_text(
+            json.dumps(payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+    def _campaign_state_payload(self) -> JsonDict:
+        payload = self._load_campaign_state()
+        payload["mainline_manifest"] = self._load_mainline_manifest()
+        payload["best_candidate_manifest"] = self._load_best_candidate_manifest()
+        payload["benchmark_failure_guard"] = self.benchmark_failure_guard
+        return payload
+
+    def _experiment_dir(self, label: str) -> Path:
+        return self._experiments_dir() / self._slugify_label(label)
+
+    def _experiment_manifest_path(self, label: str) -> Path:
+        return self._experiment_dir(label) / "manifest.json"
+
+    def _slugify_label(self, label: str) -> str:
+        base = re.sub(r"[^a-zA-Z0-9._-]+", "-", (label or "").strip()).strip("-")
+        return base or "experiment"
+
+    def _copy_candidate_files(self, destination_root: Path) -> tuple[str, ...]:
+        if destination_root.exists():
+            shutil.rmtree(destination_root)
+        destination_root.mkdir(parents=True, exist_ok=True)
+        relpaths = self._candidate_source_relpaths()
+        for rel in relpaths:
+            src = self.work_dir / rel
+            dst = destination_root / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+        return relpaths
+
+    def _restore_candidate_files(self, snapshot_dir: Path, *, files: list[str]) -> int:
+        snapshot_files = {
+            rel for rel in files if _is_write_allowed(rel) and not _is_readonly(rel)
+        }
+        current_files = set(self._candidate_source_relpaths())
+        for rel in sorted(current_files - snapshot_files):
+            path = self.work_dir / rel
+            if path.exists():
+                path.unlink()
+        restored = 0
+        for rel in sorted(snapshot_files):
+            src = snapshot_dir / rel
+            if not src.exists():
+                continue
+            dst = self.work_dir / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            restored += 1
+        return restored
+
+    def _source_fingerprint(self) -> str:
+        hasher = hashlib.sha256()
+        for rel in self._candidate_source_relpaths():
+            path = self.work_dir / rel
+            hasher.update(rel.encode("utf-8"))
+            hasher.update(b"\x00")
+            if path.exists():
+                hasher.update(path.read_bytes())
+            hasher.update(b"\x00")
+        return hasher.hexdigest()
+
+    def _normalize_failure_signature(self, message: str) -> str:
+        normalized = message.strip()
+        normalized = re.sub(r"127\.0\.0\.1:\d+", "127.0.0.1:PORT", normalized)
+        normalized = re.sub(r"/tmp/[^ \n]+", "/tmp/PATH", normalized)
+        normalized = re.sub(r"/home/[^ \n]+", "/home/PATH", normalized)
+        return normalized[:600]
+
+    def _record_benchmark_failure(
+        self,
+        *,
+        concurrency: int,
+        warmup: int,
+        max_queries: int,
+        message: str,
+    ) -> None:
+        signature = self._normalize_failure_signature(message)
+        payload = {
+            "args": {
+                "concurrency": concurrency,
+                "warmup": warmup,
+                "max_queries": max_queries,
+            },
+            "source_fingerprint": self._source_fingerprint(),
+            "signature": signature,
+            "count": 1,
+            "timestamp": _now_rfc3339(),
+        }
+        if (
+            self.benchmark_failure_guard.get("args") == payload["args"]
+            and self.benchmark_failure_guard.get("source_fingerprint") == payload["source_fingerprint"]
+            and self.benchmark_failure_guard.get("signature") == payload["signature"]
+        ):
+            payload["count"] = int(self.benchmark_failure_guard.get("count", 0) or 0) + 1
+        self.benchmark_failure_guard = payload
+
+    def _clear_benchmark_failure_guard(self) -> None:
+        self.benchmark_failure_guard = {}
+
+    def _benchmark_failure_block_reason(
+        self,
+        *,
+        concurrency: int,
+        warmup: int,
+        max_queries: int,
+    ) -> str | None:
+        if not self.benchmark_failure_guard:
+            return None
+        args_payload = {
+            "concurrency": concurrency,
+            "warmup": warmup,
+            "max_queries": max_queries,
+        }
+        if (
+            self.benchmark_failure_guard.get("args") == args_payload
+            and self.benchmark_failure_guard.get("source_fingerprint") == self._source_fingerprint()
+            and int(self.benchmark_failure_guard.get("count", 0) or 0) >= MAX_IDENTICAL_BENCHMARK_FAILURES
+        ):
+            return (
+                "Blocked repeated benchmark attempt after "
+                f"{int(self.benchmark_failure_guard['count'])} identical failures with no code or parameter change. "
+                "Change the implementation or benchmark settings before retrying."
+            )
+        return None
 
     def _milestone_name(self, qps: float) -> str:
         chosen = MILESTONE_LADDER[0][1]
@@ -652,6 +848,8 @@ class MetaHarnessRuntime:
             },
             "next_milestone": next_milestone,
             "best_candidate_manifest": self._load_best_candidate_manifest(),
+            "campaign_state": self._campaign_state_payload(),
+            "benchmark_failure_guard": self.benchmark_failure_guard,
         }
 
     def _write_progress_state(self) -> None:
@@ -697,6 +895,32 @@ class MetaHarnessRuntime:
             "manifest": payload,
         }
 
+    def _checkpoint_mainline(self, note: str) -> JsonDict:
+        relpaths = self._copy_candidate_files(self._mainline_dir())
+        benchmark = self.state.best_benchmark or self.state.last_benchmark
+        payload = {
+            "timestamp": _now_rfc3339(),
+            "note": note or "manual_mainline_checkpoint",
+            "tool_calls_used": self.state.tool_calls_used,
+            "best_benchmark": benchmark,
+            "milestone": self._milestone_name(float((benchmark or {}).get("qps", 0.0) or 0.0)),
+            "files": list(relpaths),
+        }
+        self._mainline_manifest_path().write_text(
+            json.dumps(payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        campaign = self._load_campaign_state()
+        campaign["active_branch"] = "mainline"
+        campaign["last_promotion_at"] = _now_rfc3339()
+        self._write_campaign_state(campaign)
+        self._write_progress_state()
+        return {
+            "type": "CheckpointMainline",
+            "status": "ok",
+            "manifest": payload,
+        }
+
     def _restore_best_candidate(self) -> JsonDict:
         manifest = self._load_best_candidate_manifest()
         if not manifest:
@@ -731,6 +955,130 @@ class MetaHarnessRuntime:
             "status": "ok",
             "restored_files": restored,
             "manifest": manifest,
+        }
+
+    def _restore_mainline(self) -> JsonDict:
+        manifest = self._load_mainline_manifest()
+        if not manifest:
+            return _error_result("No mainline snapshot is available to restore.")
+        snapshot_dir = self._mainline_dir()
+        if not snapshot_dir.exists():
+            return _error_result("Mainline snapshot directory is missing.")
+        restored = self._restore_candidate_files(snapshot_dir, files=list(manifest.get("files", [])))
+        campaign = self._load_campaign_state()
+        campaign["active_branch"] = "mainline"
+        self._write_campaign_state(campaign)
+        self._write_progress_state()
+        return {
+            "type": "RestoreMainline",
+            "status": "ok",
+            "restored_files": restored,
+            "manifest": manifest,
+        }
+
+    def _fork_experiment(self, label: str) -> JsonDict:
+        name = self._slugify_label(label)
+        experiment_dir = self._experiment_dir(name)
+        relpaths = self._copy_candidate_files(experiment_dir)
+        manifest = {
+            "label": name,
+            "timestamp": _now_rfc3339(),
+            "source_branch": self._load_campaign_state().get("active_branch", "mainline"),
+            "tool_calls_used": self.state.tool_calls_used,
+            "files": list(relpaths),
+            "best_benchmark": self.state.best_benchmark or self.state.last_benchmark,
+        }
+        self._experiment_manifest_path(name).write_text(
+            json.dumps(manifest, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        campaign = self._load_campaign_state()
+        experiments = dict(campaign.get("experiments", {}))
+        experiments[name] = {
+            "manifest_path": str(self._experiment_manifest_path(name)),
+            "created_at": manifest["timestamp"],
+        }
+        campaign["experiments"] = experiments
+        campaign["active_branch"] = name
+        self._write_campaign_state(campaign)
+        self._write_progress_state()
+        return {
+            "type": "ForkExperiment",
+            "status": "ok",
+            "manifest": manifest,
+        }
+
+    def _promote_experiment(self, label: str) -> JsonDict:
+        campaign = self._load_campaign_state()
+        name = self._slugify_label(label or str(campaign.get("active_branch", "")))
+        manifest = self._load_json_dict(self._experiment_manifest_path(name))
+        if not manifest:
+            return _error_result(f"Experiment {name!r} does not exist.")
+        experiment_dir = self._experiment_dir(name)
+        relpaths = tuple(
+            rel
+            for rel in manifest.get("files", [])
+            if isinstance(rel, str) and _is_write_allowed(rel) and not _is_readonly(rel)
+        )
+        mainline_dir = self._mainline_dir()
+        if mainline_dir.exists():
+            shutil.rmtree(mainline_dir)
+        mainline_dir.mkdir(parents=True, exist_ok=True)
+        for rel in relpaths:
+            src = experiment_dir / rel
+            if not src.exists():
+                continue
+            dst = mainline_dir / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+        mainline_manifest = {
+            "timestamp": _now_rfc3339(),
+            "note": f"promoted_from_{name}",
+            "tool_calls_used": self.state.tool_calls_used,
+            "best_benchmark": self.state.best_benchmark or self.state.last_benchmark,
+            "milestone": self._milestone_name(float(((self.state.best_benchmark or self.state.last_benchmark or {}).get('qps', 0.0)) or 0.0)),
+            "files": list(relpaths),
+            "source_experiment": name,
+        }
+        self._mainline_manifest_path().write_text(
+            json.dumps(mainline_manifest, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        campaign["active_branch"] = "mainline"
+        campaign["last_promotion_at"] = _now_rfc3339()
+        self._write_campaign_state(campaign)
+        self._write_progress_state()
+        return {
+            "type": "PromoteExperiment",
+            "status": "ok",
+            "mainline_manifest": mainline_manifest,
+        }
+
+    def _discard_experiment(self, label: str) -> JsonDict:
+        campaign = self._load_campaign_state()
+        name = self._slugify_label(label or str(campaign.get("active_branch", "")))
+        experiment_dir = self._experiment_dir(name)
+        manifest = self._load_json_dict(self._experiment_manifest_path(name))
+        if manifest is None and not experiment_dir.exists():
+            return _error_result(f"Experiment {name!r} does not exist.")
+        if experiment_dir.exists():
+            shutil.rmtree(experiment_dir)
+        experiments = dict(campaign.get("experiments", {}))
+        experiments.pop(name, None)
+        campaign["experiments"] = experiments
+        if campaign.get("active_branch") == name:
+            campaign["active_branch"] = "mainline"
+            self._write_campaign_state(campaign)
+            restore = self._restore_mainline()
+        else:
+            self._write_campaign_state(campaign)
+            restore = None
+        self._write_progress_state()
+        return {
+            "type": "DiscardExperiment",
+            "status": "ok",
+            "discarded": name,
+            "restore": restore,
         }
 
     def _call_llm(self) -> tuple[JsonDict, JsonDict, int]:
@@ -891,24 +1239,45 @@ class MetaHarnessRuntime:
         return {"type": "BuildProject", "success": False, "message": f"Build failed: {result}"}
 
     def _tool_run_benchmark(self, concurrency: int | None, warmup: int | None, max_queries: int | None) -> JsonDict:
+        effective_concurrency = concurrency if concurrency is not None else 4
+        effective_warmup = warmup if warmup is not None else 100
+        effective_max_queries = max_queries if max_queries is not None else 1000
+        blocked_reason = self._benchmark_failure_block_reason(
+            concurrency=effective_concurrency,
+            warmup=effective_warmup,
+            max_queries=effective_max_queries,
+        )
+        if blocked_reason is not None:
+            result = _error_result(blocked_reason)
+            self._write_progress_state()
+            return result
         previous_best_qps = float((self.state.best_benchmark or {}).get("qps", 0.0) or 0.0)
         result = _run_benchmark_like(
             work_dir=self.work_dir,
             benchmark_bin=self.benchmark_bin,
             data_dir=self.data_dir,
             cpu_cores=self.cpu_cores,
-            concurrency=concurrency if concurrency is not None else 4,
-            warmup=warmup if warmup is not None else 100,
-            max_queries=max_queries if max_queries is not None else 1000,
+            concurrency=effective_concurrency,
+            warmup=effective_warmup,
+            max_queries=effective_max_queries,
             save_history=True,
         )
         if result.get("type") == "RunBenchmark":
+            self._clear_benchmark_failure_guard()
             self.state.consider_benchmark(result)
             current_best_qps = float((self.state.best_benchmark or {}).get("qps", 0.0) or 0.0)
             if result.get("recall_passed") and current_best_qps > previous_best_qps:
                 self._snapshot_best_candidate(result, note="run_benchmark")
             else:
                 self._write_progress_state()
+        else:
+            self._record_benchmark_failure(
+                concurrency=effective_concurrency,
+                warmup=effective_warmup,
+                max_queries=effective_max_queries,
+                message=str(result.get("message", "")),
+            )
+            self._write_progress_state()
         return result
 
     def _tool_run_correctness_test(self) -> JsonDict:
@@ -974,6 +1343,7 @@ class MetaHarnessRuntime:
                 best_benchmark=payload.get("best_benchmark"),
                 call_log=list(payload.get("call_log", [])),
             )
+            self.benchmark_failure_guard = payload.get("benchmark_failure_guard", {}) or {}
             return list(payload.get("messages", []))
         system_prompt = (self.bench_repo / DEFAULT_SYSTEM_PROMPT_PATH).read_text(encoding="utf-8")
         return [
@@ -989,6 +1359,7 @@ class MetaHarnessRuntime:
             "last_benchmark": self.state.last_benchmark,
             "best_benchmark": self.state.best_benchmark,
             "call_log": self.state.call_log,
+            "benchmark_failure_guard": self.benchmark_failure_guard,
         }
         (self.work_dir / "session_context.json").write_text(json.dumps(payload), encoding="utf-8")
         self._write_progress_state()

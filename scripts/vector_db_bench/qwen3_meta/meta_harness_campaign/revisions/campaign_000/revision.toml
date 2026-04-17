@@ -1,0 +1,31 @@
+id = "campaign_000"
+description = "Persistent campaign-mode harness with mainline snapshots, experiment branches, and benchmark anti-thrash controls."
+attempts_per_eval = 1
+official_tools_only = false
+zero_completion_retry_limit = 4
+
+extra_user_messages = [
+  "Read `src/strategy.md`, `src/design_spec.md`, `src/implementation_plan.md`, `src/research_notes.md`, `src/incumbent_record.md`, `src/milestones.md`, and `src/campaign_journal.md` before your first code edit.",
+  "This is a long-running campaign, not a fresh-start benchmark attempt. Improve the persistent mainline over time, use experiment branches for risky moves, and do not repeat identical failing benchmarks.",
+  "At the start of each cycle call `review_run_state`, `benchmark_history_summary`, and `assess_architecture`. Use `fork_experiment`, `promote_experiment`, `discard_experiment`, `checkpoint_candidate`, and `restore_mainline` to manage progress deliberately.",
+]
+added_helper_tools = [
+  "review_run_state",
+  "checkpoint_candidate",
+  "restore_best_candidate",
+  "checkpoint_mainline",
+  "restore_mainline",
+  "fork_experiment",
+  "promote_experiment",
+  "discard_experiment",
+  "assess_architecture",
+  "benchmark_policy",
+  "benchmark_history_summary",
+  "profile_summary",
+  "research_notes",
+  "plan_next_step",
+]
+helper_tools_module = "helper_tools.py"
+seed_files_dir = "seed_files"
+seed_files_mount_dir = "src"
+notes = "Campaign mode uses persistent worker code across cycles, explicit mainline/experiment semantics, and anti-thrash benchmark governance."
