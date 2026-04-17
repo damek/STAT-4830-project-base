@@ -99,6 +99,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-tool-calls", type=int, default=300)
     parser.add_argument("--cpu-cores", type=str, default=DEFAULT_CPU_CORES)
     parser.add_argument("--goal-qps", type=float, default=4000.0)
+    parser.add_argument(
+        "--cross-revision-worker-carryover",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Seed each candidate revision with the prior worker incumbent snapshot.",
+    )
 
     parser.add_argument("--model-name", type=str, default="qwen3-coder-next")
     parser.add_argument("--base-url", type=str, default="https://openrouter.ai/api/v1")
@@ -294,7 +300,7 @@ def _write_context_bundle(*, workspace: Path, search_run_root: Path, incumbent_r
                 "primary": "Get qwen/qwen3-coder-next to a valid 4000+ QPS vector-db-bench solution.",
                 "secondary": [
                     "Accelerate architectural progress toward ANN/IVF-style search.",
-                    "Keep the best valid worker incumbent alive across episodes.",
+                    "Keep the best valid worker incumbent alive across episodes within a revision.",
                     "Reduce wasted loops and unstable branches.",
                 ],
                 "search_style": "Design the strongest possible teacher, tooling, and orchestration package short of directly writing the worker Rust solution yourself.",
@@ -309,7 +315,8 @@ def _write_context_bundle(*, workspace: Path, search_run_root: Path, incumbent_r
                 "worker_model": "qwen/qwen3-coder-next",
                 "worker_writes_solution_code": True,
                 "goal_qps": incumbent_summary.goal_qps,
-                "worker_state_carryover_allowed": True,
+                "cross_revision_worker_state_carryover_allowed": False,
+                "intra_revision_worker_state_carryover_allowed": True,
                 "long_horizon_episodes": True,
                 "online_research_allowed": True,
             },
@@ -366,7 +373,8 @@ def _build_codex_prompt(*, candidate_revision_id: str, parent_revision_id: str, 
         Hard framing:
         - Qwen writes the Rust solution
         - you design the optimization environment around Qwen
-        - worker state carryover across episodes is allowed and desirable
+        - each harness revision starts from the blank scaffold unless the search driver explicitly overrides that policy
+        - worker state carryover across episodes inside a single evaluation is allowed and desirable
         - long-horizon search is allowed
         - helper tools, teacher files, summaries, and orchestration changes are all valid
         - creativity is encouraged if it helps Qwen reach a state-of-the-art solution class
@@ -453,7 +461,7 @@ def _run_eval_in_workspace(*, workspace: Path, revision_id: str, eval_run_root: 
     ]
     if args.api_key:
         cmd.extend(["--api-key", args.api_key])
-    if incumbent_snapshot_dir:
+    if args.cross_revision_worker_carryover and incumbent_snapshot_dir:
         cmd.extend(["--worker-incumbent-snapshot", incumbent_snapshot_dir])
     subprocess.run(cmd, cwd=workspace, check=True, text=True)
     return _load_eval_summary(eval_run_root)
@@ -528,6 +536,7 @@ def main() -> int:
             "episodes": args.episodes,
             "goal_qps": args.goal_qps,
             "max_tool_calls": args.max_tool_calls,
+            "cross_revision_worker_carryover": args.cross_revision_worker_carryover,
             "run_root": str(run_root),
             "revisions_root": str(args.revisions_root.resolve()),
             "bench_repo": str(args.bench_repo.resolve()),

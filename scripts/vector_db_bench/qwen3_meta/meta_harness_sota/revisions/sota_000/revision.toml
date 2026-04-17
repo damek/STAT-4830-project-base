@@ -1,5 +1,5 @@
 id = "sota_000"
-description = "Baseline long-horizon SOTA-seeking harness with teacher artifacts, checkpoint tools, and incumbent carryover."
+description = "Baseline long-horizon SOTA-seeking harness with teacher artifacts, checkpoint tools, and episode carryover."
 attempts_per_eval = 3
 official_tools_only = false
 zero_completion_retry_limit = 2
@@ -19,4 +19,4 @@ added_helper_tools = [
 helper_tools_module = "helper_tools.py"
 seed_files_dir = "seed_files"
 seed_files_mount_dir = "src"
-notes = "Separate SOTA-seeking condition. Long-horizon worker episodes, incumbent carryover, structured teacher artifacts, helper tools, and zero-completion retries are enabled."
+notes = "Separate SOTA-seeking condition. Long-horizon worker episodes, within-evaluation episode carryover, structured teacher artifacts, helper tools, and zero-completion retries are enabled."

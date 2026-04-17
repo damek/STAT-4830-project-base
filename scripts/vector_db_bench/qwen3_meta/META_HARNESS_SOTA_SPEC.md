@@ -196,9 +196,13 @@ The system should now track at least three distinct state objects.
 ### 3. Search trace state
 - milestone log, failure history, architecture phase, best checkpoint handles, saturation indicators
 
-This is no longer a pure fresh-start-only evaluation setup.
+This is not a pure fresh-start-only setup inside a single long-horizon run.
 
-For this SOTA condition, **worker state carryover is acceptable and desirable**.
+The intended policy is:
+- **fresh worker start for each new harness revision**
+- **worker state carryover allowed across episodes within that revision**
+
+So the harness is evaluated on its ability to guide Qwen from the scaffold, while still allowing long-horizon progress once a revision is in flight.
 
 ## New Loop Design
 ### Outer loop
