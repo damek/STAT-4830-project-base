@@ -1,0 +1,22 @@
+id = "sota_000"
+description = "Baseline long-horizon SOTA-seeking harness with teacher artifacts, checkpoint tools, and incumbent carryover."
+attempts_per_eval = 3
+official_tools_only = false
+zero_completion_retry_limit = 2
+
+extra_user_messages = [
+  "Read `src/strategy.md`, `src/design_spec.md`, `src/implementation_plan.md`, `src/incumbent_record.md`, and `src/milestones.md` before your first code edit.",
+  "Treat this run as a long-horizon search for a valid 4000+ QPS ANN solution. Use the helper tools to checkpoint aggressively, recover from bad branches quickly, and keep architectural progress ahead of low-level tuning.",
+]
+added_helper_tools = [
+  "review_run_state",
+  "checkpoint_candidate",
+  "restore_best_candidate",
+  "assess_architecture",
+  "benchmark_policy",
+  "profile_summary",
+]
+helper_tools_module = "helper_tools.py"
+seed_files_dir = "seed_files"
+seed_files_mount_dir = "src"
+notes = "Separate SOTA-seeking condition. Long-horizon worker episodes, incumbent carryover, structured teacher artifacts, helper tools, and zero-completion retries are enabled."

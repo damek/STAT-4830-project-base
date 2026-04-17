@@ -37,6 +37,10 @@ RECALL_THRESHOLD = 0.95
 DEFAULT_BENCHMARK_BIN_NAME = "vector-db-benchmark"
 DEFAULT_SYSTEM_PROMPT_PATH = Path("agent/system_prompt.txt")
 DEFAULT_OPENROUTER_PROVIDER_IGNORE = ("ionstream",)
+META_HARNESS_STATE_DIRNAME = ".meta_harness"
+BEST_CANDIDATE_DIRNAME = "best_candidate"
+BEST_CANDIDATE_MANIFEST = "best_candidate_manifest.json"
+PROGRESS_STATE_FILENAME = "progress_state.json"
 ZERO_COMPLETION_RETRY_NUDGE = (
     "Your previous response contained zero completion tokens. "
     "Continue the run by either calling an appropriate tool or giving a concise next step. "
@@ -46,6 +50,18 @@ ZERO_COMPLETION_RETRY_NUDGE = (
 
 JsonDict = dict[str, Any]
 ToolHandler = Callable[["HelperToolContext", dict[str, Any]], Any]
+
+MILESTONE_LADDER: tuple[tuple[float, str], ...] = (
+    (0.0, "no_valid_result"),
+    (1.0, "valid_exact_baseline"),
+    (50.0, "qps_50"),
+    (100.0, "qps_100"),
+    (500.0, "qps_500"),
+    (1000.0, "qps_1000"),
+    (2000.0, "qps_2000"),
+    (3000.0, "qps_3000"),
+    (4000.0, "qps_4000"),
+)
 
 
 @dataclass(frozen=True)
@@ -335,6 +351,15 @@ class HelperToolContext:
     def get_status(self) -> JsonDict:
         return self.runtime._tool_get_status()
 
+    def restore_best_candidate(self) -> JsonDict:
+        return self.runtime._restore_best_candidate()
+
+    def checkpoint_best_candidate(self, *, note: str = "") -> JsonDict:
+        return self.runtime._checkpoint_best_candidate(note)
+
+    def get_progress_state(self) -> JsonDict:
+        return self.runtime._progress_state_payload()
+
 
 class MetaHarnessRuntime:
     def __init__(
@@ -552,7 +577,161 @@ class MetaHarnessRuntime:
         final_benchmark = result.get("final_benchmark")
         if isinstance(final_benchmark, dict):
             self.state.consider_benchmark(final_benchmark)
+            if final_benchmark.get("recall_passed") and float(final_benchmark.get("qps", 0.0) or 0.0) > 0.0:
+                self._snapshot_best_candidate(final_benchmark, note="finish")
         self._save_session_context()
+        self._write_progress_state()
+
+    def _meta_harness_state_dir(self) -> Path:
+        state_dir = self.work_dir / META_HARNESS_STATE_DIRNAME
+        state_dir.mkdir(parents=True, exist_ok=True)
+        return state_dir
+
+    def _best_candidate_dir(self) -> Path:
+        return self._meta_harness_state_dir() / BEST_CANDIDATE_DIRNAME
+
+    def _best_candidate_manifest_path(self) -> Path:
+        return self._meta_harness_state_dir() / BEST_CANDIDATE_MANIFEST
+
+    def _progress_state_path(self) -> Path:
+        return self._meta_harness_state_dir() / PROGRESS_STATE_FILENAME
+
+    def _candidate_source_relpaths(self, base_dir: Path | None = None) -> tuple[str, ...]:
+        root = (base_dir or self.work_dir).resolve()
+        relpaths: set[str] = set()
+        cargo_path = root / "Cargo.toml"
+        if cargo_path.exists() and _is_write_allowed("Cargo.toml") and not _is_readonly("Cargo.toml"):
+            relpaths.add("Cargo.toml")
+        src_root = root / "src"
+        if src_root.exists():
+            for path in src_root.rglob("*.rs"):
+                rel = path.relative_to(root).as_posix()
+                if _is_write_allowed(rel) and not _is_readonly(rel):
+                    relpaths.add(rel)
+        return tuple(sorted(relpaths))
+
+    def _load_best_candidate_manifest(self) -> JsonDict | None:
+        path = self._best_candidate_manifest_path()
+        if not path.exists():
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def _milestone_name(self, qps: float) -> str:
+        chosen = MILESTONE_LADDER[0][1]
+        for threshold, label in MILESTONE_LADDER:
+            if qps >= threshold:
+                chosen = label
+        return chosen
+
+    def _progress_state_payload(self) -> JsonDict:
+        best = self.state.best_benchmark or {}
+        best_qps = float(best.get("qps", 0.0) or 0.0)
+        milestone_name = self._milestone_name(best_qps)
+        next_milestone = None
+        for threshold, label in MILESTONE_LADDER:
+            if threshold > best_qps:
+                next_milestone = {
+                    "label": label,
+                    "target_qps": threshold,
+                    "gap_qps": max(0.0, threshold - best_qps),
+                }
+                break
+        return {
+            "tool_calls_used": self.state.tool_calls_used,
+            "tool_calls_total": self.state.tool_calls_total,
+            "elapsed_secs": self.state.elapsed_secs(),
+            "last_benchmark": self.state.last_benchmark,
+            "best_benchmark": self.state.best_benchmark,
+            "milestone": {
+                "label": milestone_name,
+                "best_qps": best_qps,
+            },
+            "next_milestone": next_milestone,
+            "best_candidate_manifest": self._load_best_candidate_manifest(),
+        }
+
+    def _write_progress_state(self) -> None:
+        self._progress_state_path().write_text(
+            json.dumps(self._progress_state_payload(), indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+    def _snapshot_best_candidate(self, benchmark: JsonDict | None, *, note: str) -> JsonDict:
+        snapshot_dir = self._best_candidate_dir()
+        if snapshot_dir.exists():
+            shutil.rmtree(snapshot_dir)
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+
+        relpaths = self._candidate_source_relpaths()
+        for rel in relpaths:
+            src = self.work_dir / rel
+            dst = snapshot_dir / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+
+        payload = {
+            "timestamp": _now_rfc3339(),
+            "note": note,
+            "tool_calls_used": self.state.tool_calls_used,
+            "best_benchmark": benchmark or self.state.best_benchmark,
+            "milestone": self._milestone_name(float((benchmark or self.state.best_benchmark or {}).get("qps", 0.0) or 0.0)),
+            "files": list(relpaths),
+        }
+        self._best_candidate_manifest_path().write_text(
+            json.dumps(payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        self._write_progress_state()
+        return payload
+
+    def _checkpoint_best_candidate(self, note: str) -> JsonDict:
+        benchmark = self.state.best_benchmark or self.state.last_benchmark
+        payload = self._snapshot_best_candidate(benchmark, note=note or "manual_checkpoint")
+        return {
+            "type": "CheckpointBestCandidate",
+            "status": "ok",
+            "manifest": payload,
+        }
+
+    def _restore_best_candidate(self) -> JsonDict:
+        manifest = self._load_best_candidate_manifest()
+        if not manifest:
+            return _error_result("No best candidate snapshot is available to restore.")
+
+        snapshot_dir = self._best_candidate_dir()
+        if not snapshot_dir.exists():
+            return _error_result("Best candidate snapshot directory is missing.")
+
+        snapshot_files = {
+            str(item)
+            for item in manifest.get("files", [])
+            if isinstance(item, str) and _is_write_allowed(item) and not _is_readonly(item)
+        }
+        current_files = set(self._candidate_source_relpaths())
+        for rel in sorted(current_files - snapshot_files):
+            path = self.work_dir / rel
+            if path.exists():
+                path.unlink()
+        restored = 0
+        for rel in sorted(snapshot_files):
+            src = snapshot_dir / rel
+            if not src.exists():
+                continue
+            dst = self.work_dir / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            restored += 1
+        self._write_progress_state()
+        return {
+            "type": "RestoreBestCandidate",
+            "status": "ok",
+            "restored_files": restored,
+            "manifest": manifest,
+        }
 
     def _call_llm(self) -> tuple[JsonDict, JsonDict, int]:
         if self.last_llm_call_at is not None and self.api_interval_ms > 0:
@@ -712,6 +891,7 @@ class MetaHarnessRuntime:
         return {"type": "BuildProject", "success": False, "message": f"Build failed: {result}"}
 
     def _tool_run_benchmark(self, concurrency: int | None, warmup: int | None, max_queries: int | None) -> JsonDict:
+        previous_best_qps = float((self.state.best_benchmark or {}).get("qps", 0.0) or 0.0)
         result = _run_benchmark_like(
             work_dir=self.work_dir,
             benchmark_bin=self.benchmark_bin,
@@ -724,6 +904,11 @@ class MetaHarnessRuntime:
         )
         if result.get("type") == "RunBenchmark":
             self.state.consider_benchmark(result)
+            current_best_qps = float((self.state.best_benchmark or {}).get("qps", 0.0) or 0.0)
+            if result.get("recall_passed") and current_best_qps > previous_best_qps:
+                self._snapshot_best_candidate(result, note="run_benchmark")
+            else:
+                self._write_progress_state()
         return result
 
     def _tool_run_correctness_test(self) -> JsonDict:
@@ -806,6 +991,7 @@ class MetaHarnessRuntime:
             "call_log": self.state.call_log,
         }
         (self.work_dir / "session_context.json").write_text(json.dumps(payload), encoding="utf-8")
+        self._write_progress_state()
 
     def _save_eval_log(self) -> None:
         payload = {
@@ -814,6 +1000,7 @@ class MetaHarnessRuntime:
             "call_log": self.state.call_log,
             "last_benchmark": self.state.last_benchmark,
             "best_benchmark": self.state.best_benchmark,
+            "progress_state": self._progress_state_payload(),
         }
         (self.work_dir / "eval_log.json").write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
@@ -836,6 +1023,8 @@ class MetaHarnessRuntime:
             "recall": float(chosen.get("recall", 0.0)) if chosen else 0.0,
             "recall_passed": bool(chosen.get("recall_passed", False)) if chosen else False,
             "result_source": chosen_source,
+            "milestone": self._progress_state_payload().get("milestone"),
+            "best_candidate_manifest": self._load_best_candidate_manifest(),
         }
         self.results_dir.mkdir(parents=True, exist_ok=True)
         output_path = self.results_dir / f"{self.model_name}.json"
