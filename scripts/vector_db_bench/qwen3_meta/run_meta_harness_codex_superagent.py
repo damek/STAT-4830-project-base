@@ -632,6 +632,10 @@ def _write_summary(path: Path, payload: dict[str, Any]) -> None:
     write_json(path, payload)
 
 
+def _log(message: str) -> None:
+    print(message, flush=True)
+
+
 def main() -> int:
     args = parse_args()
     load_dotenv(args.dotenv_path)
@@ -674,6 +678,8 @@ def main() -> int:
             "codex_enable_web_search": args.codex_enable_web_search,
         },
     )
+    _log(f"[superagent] run_root={run_root}")
+    _log(f"[superagent] cycles={args.cycles} goal_qps={args.goal_qps:.2f} cpu_cores={args.cpu_cores}")
 
     summary = _load_summary(summary_path)
     summary["goal_qps"] = args.goal_qps
@@ -691,6 +697,10 @@ def main() -> int:
     try:
         start_cycle = int(summary.get("cycles_completed", 0) or 0) + 1
         for cycle_index in range(start_cycle, args.cycles + 1):
+            _log(
+                f"[cycle {cycle_index:03d}] starting mainline_qps={float(summary.get('best_qps', 0.0) or 0.0):.2f} "
+                f"invalid_since_promotion={int(summary.get('invalid_cycles_since_promotion', 0) or 0)}"
+            )
             auto_restored = False
             if (
                 args.auto_restore_after_invalid_cycles > 0
@@ -700,6 +710,7 @@ def main() -> int:
                 _restore_workspace_from_snapshot(run_root / "mainline_snapshot", workspace)
                 _seed_bootstrap(args.bootstrap_dir.resolve(), workspace)
                 auto_restored = True
+                _log(f"[cycle {cycle_index:03d}] restored workspace from promoted mainline snapshot")
 
             _write_dynamic_files(
                 workspace=workspace,
@@ -731,6 +742,10 @@ def main() -> int:
                 use_oss=args.codex_oss,
                 local_provider=args.codex_local_provider,
                 enable_web_search=args.codex_enable_web_search,
+            )
+            _log(
+                f"[cycle {cycle_index:03d}] codex_done returncode={codex_result.returncode} "
+                f"runtime_seconds={codex_result.runtime_seconds:.2f}"
             )
             write_json(
                 outputs_root / f"cycle_{cycle_index:03d}_exec.json",
@@ -771,6 +786,14 @@ def main() -> int:
                 summary["invalid_cycles_since_promotion"] = int(summary.get("invalid_cycles_since_promotion", 0) or 0) + (0 if evaluation.valid else 1)
 
             goal_reached = float(summary.get("best_qps", 0.0) or 0.0) >= args.goal_qps
+            _log(
+                f"[cycle {cycle_index:03d}] eval build_success={evaluation.build_success} "
+                f"correctness_passed={bool(evaluation.correctness.get('passed', False))} "
+                f"quick_qps={float(evaluation.quick_benchmark.get('qps', 0.0) or 0.0):.2f} "
+                f"full_qps={float((evaluation.full_benchmark or {}).get('qps', 0.0) or 0.0):.2f} "
+                f"chosen_qps={chosen_qps:.2f} valid={evaluation.valid} promoted={promoted} "
+                f"mainline_qps={float(summary.get('best_qps', 0.0) or 0.0):.2f}"
+            )
             summary.update(
                 {
                     "run_root": str(run_root),
@@ -872,11 +895,17 @@ def main() -> int:
             _write_summary(summary_path, summary)
 
             if args.stop_at_goal and goal_reached:
+                _log(f"[cycle {cycle_index:03d}] goal reached; stopping")
                 break
     finally:
         _close_results_writer(writer)
 
     _write_summary(summary_path, summary)
+    _log(
+        f"[superagent] completed cycles={int(summary.get('cycles_completed', 0) or 0)} "
+        f"best_qps={float(summary.get('best_qps', 0.0) or 0.0):.2f} "
+        f"goal_reached={bool(summary.get('goal_reached', False))}"
+    )
     return 0
 
 
