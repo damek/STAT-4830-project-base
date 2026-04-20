@@ -24,3 +24,12 @@ Read first:
 - `.meta_codex/incumbent_record.md`
 - `.meta_codex/milestones.md`
 - `.meta_codex/campaign_journal.md`
+
+Official-style workspace tools:
+- `.meta_codex/tools/build_project`
+- `.meta_codex/tools/run_correctness_test`
+- `.meta_codex/tools/run_benchmark`
+- `.meta_codex/tools/run_profiling`
+- `.meta_codex/tools/get_status`
+
+Use these instead of inventing ad hoc benchmark commands.

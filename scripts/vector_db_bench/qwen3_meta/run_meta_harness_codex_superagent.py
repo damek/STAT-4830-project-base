@@ -366,6 +366,9 @@ def _seed_bootstrap(bootstrap_dir: Path, workspace: Path) -> None:
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, dest)
+    for path in tools_dir.rglob("*"):
+        if path.is_file():
+            path.chmod(0o755)
 
 
 def _sync_recent_cycles(run_root: Path, workspace: Path, keep: int = 5) -> None:
@@ -476,6 +479,20 @@ def _write_dynamic_files(*, workspace: Path, run_root: Path, summary: dict[str, 
     }
     write_json(run_root / "mainline_manifest.json", manifest_payload)
     write_json(meta_dir / "mainline_manifest.json", manifest_payload)
+    write_json(
+        meta_dir / "tool_config.json",
+        {
+            "repo_root": str(REPO_ROOT),
+            "run_root": str(run_root),
+            "workspace": str(workspace),
+            "bench_repo": str((run_root / "superagent_config.json") and json.loads((run_root / "superagent_config.json").read_text(encoding="utf-8")).get("bench_repo", "")),
+            "data_dir": str((run_root / "superagent_config.json") and json.loads((run_root / "superagent_config.json").read_text(encoding="utf-8")).get("data_dir", "")),
+            "cpu_cores": str((run_root / "superagent_config.json") and json.loads((run_root / "superagent_config.json").read_text(encoding="utf-8")).get("cpu_cores", "")),
+            "goal_qps": goal_qps,
+            "cycle": cycle_index,
+            "tool_calls_total": 2147483647,
+        },
+    )
 
     _sync_recent_cycles(run_root, workspace)
     _mirror_mainline_snapshot(run_root, workspace)
@@ -505,6 +522,15 @@ def _build_cycle_prompt(*, workspace: Path, run_root: Path, goal_qps: float, cyc
         - you may directly edit your local harness under `.meta_codex/`
         - you may create helper scripts under `.meta_codex/tools/` and use them in later cycles
         - optimize for speed of convergence, not for tiny cosmetic changes
+
+        Official-style workspace tools available now:
+        - `.meta_codex/tools/build_project`
+        - `.meta_codex/tools/run_correctness_test`
+        - `.meta_codex/tools/run_benchmark`
+        - `.meta_codex/tools/run_profiling`
+        - `.meta_codex/tools/get_status`
+        - use these first-class wrappers when you want benchmark-style actions during the cycle
+        - there is no `finish` tool here because the driver ends and evaluates the cycle externally
 
         Read first:
         - .meta_codex/README.md

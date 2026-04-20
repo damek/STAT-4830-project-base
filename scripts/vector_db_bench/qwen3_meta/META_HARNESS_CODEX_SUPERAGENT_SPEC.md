@@ -43,6 +43,18 @@ Codex may change:
 
 Codex should be explicitly allowed to create and evolve its own local harness under a reserved directory such as `.meta_codex/`.
 
+## Official-Style Workspace Tools
+Codex should be given benchmark-style tools inside the persistent workspace:
+- `build_project`
+- `run_correctness_test`
+- `run_benchmark`
+- `run_profiling`
+- `get_status`
+
+These do not need to be native API tools. Workspace wrapper scripts are sufficient if they provide the same operational surface and structured output.
+
+`finish` is not required because the outer driver already controls cycle boundaries and promotion.
+
 ## Core Principle
 This mode is meant to look like an autonomous long-running engineering campaign.
 
