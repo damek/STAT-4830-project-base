@@ -6,8 +6,8 @@ zero_completion_retry_limit = 4
 
 extra_user_messages = [
   "Read `src/strategy.md`, `src/design_spec.md`, `src/implementation_plan.md`, `src/research_notes.md`, `src/incumbent_record.md`, `src/milestones.md`, and `src/campaign_journal.md` before your first code edit.",
-  "This is a long-running campaign, not a fresh-start benchmark attempt. Improve the persistent mainline over time, use experiment branches for risky moves, and do not repeat identical failing benchmarks.",
-  "At the start of each cycle call `review_run_state`, `benchmark_history_summary`, and `assess_architecture`. Use `fork_experiment`, `promote_experiment`, `discard_experiment`, `checkpoint_candidate`, and `restore_mainline` to manage progress deliberately.",
+  "This is a long-running campaign, not a fresh-start benchmark attempt. Qwen is the actuator for this burst and still has the same short tool-call budget as the baseline worker condition. Improve the persistent mainline over time, use experiment branches for risky moves, and do not repeat identical failing benchmarks.",
+  "Codex is the conductor across many bursts. At the start of each cycle call `review_run_state`, `benchmark_history_summary`, and `assess_architecture`. Use `fork_experiment`, `promote_experiment`, `discard_experiment`, `checkpoint_candidate`, and `restore_mainline` to manage progress deliberately and return control cleanly near the end of the burst.",
 ]
 added_helper_tools = [
   "review_run_state",

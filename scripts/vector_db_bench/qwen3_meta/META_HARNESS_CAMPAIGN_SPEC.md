@@ -25,6 +25,12 @@ In campaign mode:
 - Qwen continues improving the same evolving implementation over a long horizon
 - progress is judged by the **trajectory**, not just the final one-shot score
 
+Operating split:
+- **Codex is the conductor**
+- **Qwen is the actuator**
+- Qwen should still operate under the same short per-burst tool-call budget as the baseline worker condition
+- Codex should absorb as much planning, research, orchestration, and failure-triage work as possible while leaving the actual Rust code authoring to Qwen
+
 ## Core Principle
 - **Qwen writes and modifies the Rust solution**
 - **Codex designs the optimization environment, campaign strategy, helper tools, and intervention logic**
@@ -75,6 +81,11 @@ Qwen works on the persistent codebase and should:
 6. promote or discard experiment branches
 7. continue until a stop trigger or supervisor trigger fires
 
+Qwen should not be allowed to sprawl indefinitely inside one undirected session.
+Default operating assumption:
+- one Qwen burst = about `50` tool calls
+- then control returns to Codex for the next supervisory rewrite
+
 ### Outer loop: Codex
 Codex does not restart the worker from scratch.
 
@@ -97,7 +108,7 @@ Codex should be triggered:
 - after a major architectural transition
 
 Recommended initial trigger rule:
-- supervisor review every `75-150` worker tool calls
+- supervisor review every Qwen burst, with an initial default of `50` worker tool calls
 - immediate review after `k >= 3` repeated identical failure signatures
 - immediate review after `m >= 5` benchmark attempts with no valid improvement
 

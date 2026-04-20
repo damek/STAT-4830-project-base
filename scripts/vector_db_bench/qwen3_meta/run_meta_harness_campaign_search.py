@@ -31,6 +31,8 @@ DEFAULT_BENCH_REPO = REPO_ROOT / "third_party" / "vector-db-bench"
 DEFAULT_BLANK_SEED_SOURCE = DEFAULT_BENCH_REPO / "skeleton"
 DEFAULT_DATA_DIR = DEFAULT_BENCH_REPO / "data"
 DEFAULT_CPU_CORES = "0-3"
+DEFAULT_QWEN_BURST_TOOL_CALLS = 50
+DEFAULT_SEARCH_ITERATIONS = 20
 DEFAULT_RUN_ROOT = REPO_ROOT / "data" / "vector_db_bench" / "qwen3_meta" / "meta_harness_campaign_search" / datetime.now().strftime("%Y%m%d_%H%M%S")
 SEARCH_COLUMNS = [
     "iteration",
@@ -87,13 +89,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dotenv-path", type=Path, default=DEFAULT_DOTENV_PATH)
     parser.add_argument("--base-revision-id", type=str, default="campaign_000")
     parser.add_argument("--reuse-incumbent-run-root", type=Path, default=None)
-    parser.add_argument("--iterations", type=int, default=1)
+    parser.add_argument("--iterations", type=int, default=DEFAULT_SEARCH_ITERATIONS)
     parser.add_argument("--cycles-per-revision", type=int, default=1)
 
     parser.add_argument("--bench-repo", type=Path, default=DEFAULT_BENCH_REPO)
     parser.add_argument("--blank-seed-source", type=Path, default=DEFAULT_BLANK_SEED_SOURCE)
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
-    parser.add_argument("--max-tool-calls", type=int, default=150)
+    parser.add_argument("--max-tool-calls", type=int, default=DEFAULT_QWEN_BURST_TOOL_CALLS)
     parser.add_argument("--cpu-cores", type=str, default=DEFAULT_CPU_CORES)
     parser.add_argument("--goal-qps", type=float, default=4000.0)
 
@@ -308,7 +310,7 @@ def _write_context_bundle(*, workspace: Path, search_run_root: Path, incumbent_r
                     "Inspect the persistent campaign trace and current mainline worker state.",
                     "Research strong public vector-db solution patterns when useful.",
                     "Design detailed teacher artifacts, benchmark policy, and helper tools for the next campaign segment.",
-                    "Help Qwen as much as possible short of directly writing the worker Rust solution.",
+                    "Act as the conductor across many short worker bursts and help Qwen as much as possible short of directly writing the worker Rust solution.",
                 ],
             },
             "campaign_constraints": {
@@ -318,6 +320,9 @@ def _write_context_bundle(*, workspace: Path, search_run_root: Path, incumbent_r
                 "persistent_experiment_branches": True,
                 "online_research_allowed": True,
                 "goal_qps": incumbent_summary.goal_qps,
+                "qwen_burst_tool_call_budget": args.max_tool_calls,
+                "qwen_role": "actuator",
+                "codex_role": "conductor",
             },
             "worker_file_scope": {
                 "readable": ["src/*", "Cargo.toml", "benchmarks/*", "profiling/*"],
@@ -384,6 +389,9 @@ def _build_codex_prompt(*, candidate_revision_id: str, parent_revision_id: str, 
 
         Hard framing:
         - qwen writes the Rust solution
+        - qwen is the constrained actuator
+        - qwen should operate under the same per-burst tool-call budget as the baseline worker condition
+        - you are the conductor across many bursts and revisions
         - you design the optimization environment around qwen
         - worker mainline persists across revisions in this campaign mode
         - your revision will be evaluated on top of the incumbent mainline snapshot, not from a blank codebase
@@ -416,6 +424,8 @@ def _build_codex_prompt(*, candidate_revision_id: str, parent_revision_id: str, 
 
         Revision standard:
         - optimize for long-horizon staircase progress, not tiny local deltas
+        - optimize for speed of convergence, not just local polish
+        - assume qwen gets a short burst and you must front-load the highest-leverage guidance into the harness
         - research is allowed when useful
         - it is good to be directive and opinionated if that helps the worker move faster
         - preserve the principle that qwen, not you, writes the Rust solution

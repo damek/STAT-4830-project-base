@@ -42,6 +42,7 @@ DEFAULT_BENCH_REPO = REPO_ROOT / "third_party" / "vector-db-bench"
 DEFAULT_DATA_DIR = DEFAULT_BENCH_REPO / "data"
 DEFAULT_CPU_CORES = "0-3"
 DEFAULT_GOAL_QPS = 4000.0
+DEFAULT_QWEN_BURST_TOOL_CALLS = 50
 DEFAULT_RUNS_ROOT = REPO_ROOT / "data" / "vector_db_bench" / "qwen3_meta" / "meta_harness_campaign_runs"
 META_STATE_DIRNAME = ".meta_harness"
 MAINLINE_MANIFEST = "mainline_manifest.json"
@@ -74,7 +75,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--api-interval-ms", type=int, default=0)
 
     parser.add_argument("--cycles", type=int, default=8)
-    parser.add_argument("--max-tool-calls", type=int, default=300)
+    parser.add_argument("--max-tool-calls", type=int, default=DEFAULT_QWEN_BURST_TOOL_CALLS)
     parser.add_argument("--cpu-cores", type=str, default=DEFAULT_CPU_CORES)
     parser.add_argument("--goal-qps", type=float, default=DEFAULT_GOAL_QPS)
     parser.add_argument("--mainline-snapshot", type=Path, default=None)
@@ -284,7 +285,7 @@ def _write_cycle_session_context(*, bench_repo: Path, work_dir: Path, revision: 
     milestone = ((progress.get("milestone") or {}).get("label")) or "no_valid_result"
     extra_messages = list(revision.extra_user_messages)
     extra_messages.append(
-        f"Campaign cycle {cycle_index}. Continue improving the persistent codebase. Current milestone: {milestone}. Use mainline and experiment tools deliberately."
+        f"Campaign cycle {cycle_index}. This burst has the same {max_tool_calls}-tool-call budget as the baseline worker condition. Continue improving the persistent codebase. Current milestone: {milestone}. Use mainline and experiment tools deliberately, and hand control back cleanly when the burst budget is nearly spent."
     )
     messages = [
         _chat_message("system", system_prompt),
