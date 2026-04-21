@@ -1692,8 +1692,10 @@ def _maybe_int(value: Any) -> int | None:
         return None
 
 
-def _error_result(message: str) -> JsonDict:
-    return {"type": "Error", "message": message}
+def _error_result(message: str, **extra: Any) -> JsonDict:
+    payload: JsonDict = {"type": "Error", "message": message}
+    payload.update(extra)
+    return payload
 
 
 def _normalize_relpath(path: str) -> str:
@@ -1914,6 +1916,142 @@ def _build_comparison(prev: JsonDict, curr: JsonDict) -> JsonDict:
     }
 
 
+def _parse_ps_output(raw: str) -> list[JsonDict]:
+    entries: list[JsonDict] = []
+    for line in raw.splitlines():
+        parts = line.strip().split(None, 6)
+        if len(parts) < 7:
+            continue
+        pid, ppid, psr, pcpu, pmem, comm, args = parts
+        entries.append(
+            {
+                "pid": int(pid),
+                "ppid": int(ppid),
+                "psr": int(psr) if psr.isdigit() else None,
+                "cpu_percent": float(pcpu),
+                "mem_percent": float(pmem),
+                "command": comm,
+                "args": args,
+            }
+        )
+    return entries
+
+
+def _read_proc_status(pid: int) -> JsonDict | None:
+    path = Path("/proc") / str(pid) / "status"
+    if not path.exists():
+        return None
+    wanted = {
+        "Name": "name",
+        "State": "state",
+        "PPid": "ppid",
+        "Threads": "threads",
+        "VmRSS": "vm_rss",
+        "Cpus_allowed_list": "cpus_allowed_list",
+    }
+    data: JsonDict = {}
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        target = wanted.get(key)
+        if target is None:
+            continue
+        data[target] = value.strip()
+    return data
+
+
+def _read_meminfo() -> JsonDict:
+    path = Path("/proc/meminfo")
+    if not path.exists():
+        return {}
+    wanted = {"MemTotal", "MemFree", "MemAvailable", "Buffers", "Cached"}
+    payload: JsonDict = {}
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        if key not in wanted:
+            continue
+        payload[key] = value.strip()
+    return payload
+
+
+def _capture_process_snapshot(*, pids: tuple[int, ...]) -> list[JsonDict]:
+    live_pids = tuple(dict.fromkeys(pid for pid in pids if pid > 0))
+    if not live_pids:
+        return []
+    try:
+        proc = subprocess.run(
+            [
+                "ps",
+                "-p",
+                ",".join(str(pid) for pid in live_pids),
+                "-o",
+                "pid=,ppid=,psr=,pcpu=,pmem=,comm=,args=",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        snapshot = {entry["pid"]: entry for entry in _parse_ps_output(proc.stdout)}
+    except (OSError, subprocess.SubprocessError, ValueError):
+        snapshot = {}
+    results: list[JsonDict] = []
+    for pid in live_pids:
+        status = _read_proc_status(pid)
+        entry = dict(snapshot.get(pid, {"pid": pid, "missing": True}))
+        if status is not None:
+            entry["proc_status"] = status
+        results.append(entry)
+    return results
+
+
+def _capture_top_processes(limit: int = 12) -> list[JsonDict]:
+    try:
+        proc = subprocess.run(
+            [
+                "ps",
+                "-eo",
+                "pid=,ppid=,psr=,pcpu=,pmem=,comm=,args=",
+                "--sort=-pcpu",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return []
+    return _parse_ps_output(proc.stdout)[:limit]
+
+
+def _collect_system_observation(*, cpu_cores: str, focus_pids: tuple[int, ...]) -> JsonDict:
+    load1, load5, load15 = os.getloadavg()
+    proc_loadavg_path = Path("/proc/loadavg")
+    proc_loadavg = (
+        proc_loadavg_path.read_text(encoding="utf-8", errors="replace").strip()
+        if proc_loadavg_path.exists()
+        else None
+    )
+    return {
+        "timestamp": _now_rfc3339(),
+        "hostname": socket.gethostname(),
+        "cpu_cores_config": cpu_cores,
+        "loadavg": {
+            "1m": round(load1, 3),
+            "5m": round(load5, 3),
+            "15m": round(load15, 3),
+            "proc_loadavg": proc_loadavg,
+        },
+        "cpu_count": os.cpu_count(),
+        "meminfo": _read_meminfo(),
+        "focus_processes": _capture_process_snapshot(pids=focus_pids),
+        "top_processes_by_cpu": _capture_top_processes(),
+    }
+
+
 def _run_benchmark_like(
     *,
     work_dir: Path,
@@ -1931,6 +2069,8 @@ def _run_benchmark_like(
 
     port = _allocate_port()
     child = None
+    benchmark_proc = None
+    observation_before: JsonDict | None = None
     try:
         child = _start_server(work_dir, port=port, cpu_cores=cpu_cores)
         _wait_for_server_ready(port, SERVER_READY_TIMEOUT_SECS)
@@ -1940,45 +2080,89 @@ def _run_benchmark_like(
         for path, label in ((query_vectors, "query vectors"), (ground_truth, "ground truth")):
             if not path.exists():
                 return _error_result(f"Data file not found: {path} ({label})")
-        proc = subprocess.run(
-            [
-                str(benchmark_bin),
-                "--server-url",
-                f"http://127.0.0.1:{port}",
-                "--concurrency",
-                str(concurrency),
-                "--warmup",
-                str(warmup),
-                "--max-queries",
-                str(max_queries),
-                "--base-vectors",
-                str(base_vectors),
-                "--query-vectors",
-                str(query_vectors),
-                "--ground-truth",
-                str(ground_truth),
-            ],
+        benchmark_argv = [
+            str(benchmark_bin),
+            "--server-url",
+            f"http://127.0.0.1:{port}",
+            "--concurrency",
+            str(concurrency),
+            "--warmup",
+            str(warmup),
+            "--max-queries",
+            str(max_queries),
+            "--base-vectors",
+            str(base_vectors),
+            "--query-vectors",
+            str(query_vectors),
+            "--ground-truth",
+            str(ground_truth),
+        ]
+        benchmark_proc = subprocess.Popen(
+            benchmark_argv,
             cwd=work_dir,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=BENCHMARK_TIMEOUT_SECS,
         )
-        if proc.returncode != 0:
+        observation_before = _collect_system_observation(
+            cpu_cores=cpu_cores,
+            focus_pids=(child.pid, benchmark_proc.pid),
+        )
+        try:
+            stdout, stderr = benchmark_proc.communicate(timeout=BENCHMARK_TIMEOUT_SECS)
+        except subprocess.TimeoutExpired:
+            benchmark_proc.kill()
+            stdout, stderr = benchmark_proc.communicate()
             return _error_result(
-                f"Benchmark exited with code {proc.returncode}: {(proc.stderr or proc.stdout)[:2000]}"
+                f"Benchmark timed out after {BENCHMARK_TIMEOUT_SECS} seconds",
+                system_observation={
+                    "before": observation_before,
+                    "after": _collect_system_observation(cpu_cores=cpu_cores, focus_pids=(child.pid,)),
+                    "server_pid": child.pid,
+                    "benchmark_pid": benchmark_proc.pid,
+                },
             )
-        output = json.loads(proc.stdout)
+        observation_after = _collect_system_observation(cpu_cores=cpu_cores, focus_pids=(child.pid,))
+        if benchmark_proc.returncode != 0:
+            return _error_result(
+                f"Benchmark exited with code {benchmark_proc.returncode}: {(stderr or stdout)[:2000]}",
+                system_observation={
+                    "before": observation_before,
+                    "after": observation_after,
+                    "server_pid": child.pid,
+                    "benchmark_pid": benchmark_proc.pid,
+                },
+            )
+        output = json.loads(stdout)
         bench = dict(output["benchmark"])
+        bench["system_observation"] = {
+            "before": observation_before,
+            "after": observation_after,
+            "server_pid": child.pid,
+            "benchmark_pid": benchmark_proc.pid,
+        }
         prev = _load_previous_benchmark(work_dir)
         if prev is not None:
             bench["comparison"] = _build_comparison(prev, bench)
         if save_history:
             _save_benchmark_result(work_dir, bench)
         return {"type": "RunBenchmark", **bench}
-    except subprocess.TimeoutExpired:
-        return _error_result(f"Benchmark timed out after {BENCHMARK_TIMEOUT_SECS} seconds")
     except Exception as exc:  # noqa: BLE001
-        return _error_result(str(exc))
+        return _error_result(
+            str(exc),
+            system_observation=(
+                {
+                    "before": observation_before,
+                    "after": _collect_system_observation(cpu_cores=cpu_cores, focus_pids=(child.pid,))
+                    if child is not None
+                    else None,
+                    "server_pid": child.pid if child is not None else None,
+                    "benchmark_pid": benchmark_proc.pid if benchmark_proc is not None else None,
+                }
+                if observation_before is not None or child is not None or benchmark_proc is not None
+                else None
+            ),
+        )
     finally:
         _kill_server(child)
 
@@ -1989,42 +2173,70 @@ def _run_correctness_test_like(*, work_dir: Path, benchmark_bin: Path, data_dir:
         return _error_result(f"Build failed: {build_error}")
     port = _allocate_port()
     child = None
+    benchmark_proc = None
+    observation_before: JsonDict | None = None
     try:
         child = _start_server(work_dir, port=port, cpu_cores=cpu_cores)
         _wait_for_server_ready(port, SERVER_READY_TIMEOUT_SECS)
         base_vectors = _find_base_vectors(data_dir, work_dir)
         query_vectors = data_dir / "query_vectors.json"
         ground_truth = data_dir / "ground_truth.json"
-        proc = subprocess.run(
-            [
-                str(benchmark_bin),
-                "--server-url",
-                f"http://127.0.0.1:{port}",
-                "--concurrency",
-                "1",
-                "--warmup",
-                "0",
-                "--max-queries",
-                "100",
-                "--base-vectors",
-                str(base_vectors),
-                "--query-vectors",
-                str(query_vectors),
-                "--ground-truth",
-                str(ground_truth),
-                "--recall-threshold",
-                str(RECALL_THRESHOLD),
-            ],
+        benchmark_argv = [
+            str(benchmark_bin),
+            "--server-url",
+            f"http://127.0.0.1:{port}",
+            "--concurrency",
+            "1",
+            "--warmup",
+            "0",
+            "--max-queries",
+            "100",
+            "--base-vectors",
+            str(base_vectors),
+            "--query-vectors",
+            str(query_vectors),
+            "--ground-truth",
+            str(ground_truth),
+            "--recall-threshold",
+            str(RECALL_THRESHOLD),
+        ]
+        benchmark_proc = subprocess.Popen(
+            benchmark_argv,
             cwd=work_dir,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=BENCHMARK_TIMEOUT_SECS,
         )
-        if proc.returncode != 0:
+        observation_before = _collect_system_observation(
+            cpu_cores=cpu_cores,
+            focus_pids=(child.pid, benchmark_proc.pid),
+        )
+        try:
+            stdout, stderr = benchmark_proc.communicate(timeout=BENCHMARK_TIMEOUT_SECS)
+        except subprocess.TimeoutExpired:
+            benchmark_proc.kill()
+            stdout, stderr = benchmark_proc.communicate()
             return _error_result(
-                f"Correctness test exited with code {proc.returncode}: {(proc.stderr or proc.stdout)[:2000]}"
+                f"Correctness test timed out after {BENCHMARK_TIMEOUT_SECS} seconds",
+                system_observation={
+                    "before": observation_before,
+                    "after": _collect_system_observation(cpu_cores=cpu_cores, focus_pids=(child.pid,)),
+                    "server_pid": child.pid,
+                    "benchmark_pid": benchmark_proc.pid,
+                },
             )
-        output = json.loads(proc.stdout)
+        observation_after = _collect_system_observation(cpu_cores=cpu_cores, focus_pids=(child.pid,))
+        if benchmark_proc.returncode != 0:
+            return _error_result(
+                f"Correctness test exited with code {benchmark_proc.returncode}: {(stderr or stdout)[:2000]}",
+                system_observation={
+                    "before": observation_before,
+                    "after": observation_after,
+                    "server_pid": child.pid,
+                    "benchmark_pid": benchmark_proc.pid,
+                },
+            )
+        output = json.loads(stdout)
         bench = output["benchmark"]
         passed = float(bench.get("recall", 0.0)) >= RECALL_THRESHOLD
         message = (
@@ -2040,11 +2252,29 @@ def _run_correctness_test_like(*, work_dir: Path, benchmark_bin: Path, data_dir:
             "recall_threshold": RECALL_THRESHOLD,
             "failed_queries": [],
             "message": message,
+            "system_observation": {
+                "before": observation_before,
+                "after": observation_after,
+                "server_pid": child.pid,
+                "benchmark_pid": benchmark_proc.pid,
+            },
         }
-    except subprocess.TimeoutExpired:
-        return _error_result(f"Correctness test timed out after {BENCHMARK_TIMEOUT_SECS} seconds")
     except Exception as exc:  # noqa: BLE001
-        return _error_result(str(exc))
+        return _error_result(
+            str(exc),
+            system_observation=(
+                {
+                    "before": observation_before,
+                    "after": _collect_system_observation(cpu_cores=cpu_cores, focus_pids=(child.pid,))
+                    if child is not None
+                    else None,
+                    "server_pid": child.pid if child is not None else None,
+                    "benchmark_pid": benchmark_proc.pid if benchmark_proc is not None else None,
+                }
+                if observation_before is not None or child is not None or benchmark_proc is not None
+                else None
+            ),
+        )
     finally:
         _kill_server(child)
 
