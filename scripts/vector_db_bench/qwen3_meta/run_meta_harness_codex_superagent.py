@@ -87,6 +87,24 @@ SNAPSHOT_EXCLUDE_FILES = {
     "perf.data",
     "flamegraph.svg",
 }
+LEGACY_MILESTONE_LADDER = (
+    (0.0, "no_valid_result"),
+    (1.0, "valid_exact_baseline"),
+    (50.0, "qps_50"),
+    (100.0, "qps_100"),
+    (500.0, "qps_500"),
+    (1000.0, "qps_1000"),
+    (2000.0, "qps_2000"),
+    (3000.0, "qps_3000"),
+    (4000.0, "qps_4000"),
+)
+EXTENDED_MILESTONE_LADDER = LEGACY_MILESTONE_LADDER + (
+    (8000.0, "qps_8000"),
+    (12000.0, "qps_12000"),
+    (16000.0, "qps_16000"),
+    (20000.0, "qps_20000"),
+    (22000.0, "qps_22000"),
+)
 
 
 @dataclass(frozen=True)
@@ -294,23 +312,12 @@ def _now_rfc3339() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def _current_milestone(best_qps: float) -> tuple[str, float | None]:
-    ladder = [
-        (0.0, "no_valid_result"),
-        (1.0, "valid_exact_baseline"),
-        (50.0, "qps_50"),
-        (100.0, "qps_100"),
-        (500.0, "qps_500"),
-        (1000.0, "qps_1000"),
-        (2000.0, "qps_2000"),
-        (3000.0, "qps_3000"),
-        (4000.0, "qps_4000"),
-        (8000.0, "qps_8000"),
-        (12000.0, "qps_12000"),
-        (16000.0, "qps_16000"),
-        (20000.0, "qps_20000"),
-        (22000.0, "qps_22000"),
-    ]
+def _workspace_uses_extended_tooling(workspace: Path) -> bool:
+    return (workspace / ".meta_codex" / "tools" / "meta_tools.py").exists()
+
+
+def _current_milestone(best_qps: float, *, extended: bool) -> tuple[str, float | None]:
+    ladder = EXTENDED_MILESTONE_LADDER if extended else LEGACY_MILESTONE_LADDER
     current = ladder[0][1]
     next_target = None
     for threshold, label in ladder:
@@ -383,6 +390,8 @@ def _restore_workspace_from_snapshot(snapshot_dir: Path, workspace: Path) -> Non
 
 def _seed_bootstrap(bootstrap_dir: Path, workspace: Path) -> None:
     meta_dir = workspace / ".meta_codex"
+    if meta_dir.exists():
+        return
     meta_dir.mkdir(parents=True, exist_ok=True)
     tools_dir = meta_dir / "tools"
     tools_dir.mkdir(parents=True, exist_ok=True)
@@ -442,7 +451,8 @@ def _write_dynamic_files(*, workspace: Path, run_root: Path, summary: dict[str, 
     meta_dir.mkdir(parents=True, exist_ok=True)
     best_qps = float(summary.get("best_qps", 0.0) or 0.0)
     best_recall = float(summary.get("best_recall", 0.0) or 0.0)
-    milestone, next_target = _current_milestone(best_qps)
+    extended = _workspace_uses_extended_tooling(workspace)
+    milestone, next_target = _current_milestone(best_qps, extended=extended)
     progress_state = {
         "cycle": cycle_index,
         "goal_qps": goal_qps,
@@ -495,12 +505,17 @@ def _write_dynamic_files(*, workspace: Path, run_root: Path, summary: dict[str, 
         "- qps_2000",
         "- qps_3000",
         "- qps_4000",
-        "- qps_8000",
-        "- qps_12000",
-        "- qps_16000",
-        "- qps_20000",
-        "- qps_22000",
     ]
+    if extended:
+        milestone_lines.extend(
+            [
+                "- qps_8000",
+                "- qps_12000",
+                "- qps_16000",
+                "- qps_20000",
+                "- qps_22000",
+            ]
+        )
     (meta_dir / "milestones.md").write_text("\n".join(milestone_lines) + "\n", encoding="utf-8")
 
     manifest_payload = {
@@ -533,6 +548,21 @@ def _write_dynamic_files(*, workspace: Path, run_root: Path, summary: dict[str, 
 
 
 def _build_cycle_prompt(*, workspace: Path, run_root: Path, goal_qps: float, cycle_index: int) -> str:
+    tool_block = ""
+    if _workspace_uses_extended_tooling(workspace):
+        tool_block = textwrap.dedent(
+            """\
+
+            Official-style workspace tools available now:
+            - `.meta_codex/tools/build_project`
+            - `.meta_codex/tools/run_correctness_test`
+            - `.meta_codex/tools/run_benchmark`
+            - `.meta_codex/tools/run_profiling`
+            - `.meta_codex/tools/get_status`
+            - use these first-class wrappers when you want benchmark-style actions during the cycle
+            - there is no `finish` tool here because the driver ends and evaluates the cycle externally
+            """
+        )
     return textwrap.dedent(
         f"""\
         You are running a persistent Codex superagent campaign for vector-db-bench.
@@ -556,15 +586,7 @@ def _build_cycle_prompt(*, workspace: Path, run_root: Path, goal_qps: float, cyc
         - you may directly edit your local harness under `.meta_codex/`
         - you may create helper scripts under `.meta_codex/tools/` and use them in later cycles
         - optimize for speed of convergence, not for tiny cosmetic changes
-
-        Official-style workspace tools available now:
-        - `.meta_codex/tools/build_project`
-        - `.meta_codex/tools/run_correctness_test`
-        - `.meta_codex/tools/run_benchmark`
-        - `.meta_codex/tools/run_profiling`
-        - `.meta_codex/tools/get_status`
-        - use these first-class wrappers when you want benchmark-style actions during the cycle
-        - there is no `finish` tool here because the driver ends and evaluates the cycle externally
+        {tool_block}
 
         Read first:
         - .meta_codex/README.md
@@ -772,21 +794,27 @@ def main() -> int:
                 auto_restored = True
                 _log(f"[cycle {cycle_index:03d}] restored workspace from promoted mainline snapshot")
 
-            _write_dynamic_files(
-                workspace=workspace,
-                run_root=run_root,
-                summary=summary,
-                cycle_index=cycle_index,
-                goal_qps=args.goal_qps,
-            )
-            prompt = _build_cycle_prompt(
-                workspace=workspace,
-                run_root=run_root,
-                goal_qps=args.goal_qps,
-                cycle_index=cycle_index,
-            )
             prompt_path = prompts_root / f"cycle_{cycle_index:03d}.md"
-            prompt_path.write_text(prompt, encoding="utf-8")
+            cycle_summary_path = cycles_root / f"cycle_{cycle_index:03d}" / "cycle_summary.json"
+            resume_incomplete_cycle = prompt_path.exists() and not cycle_summary_path.exists()
+            if resume_incomplete_cycle:
+                prompt = prompt_path.read_text(encoding="utf-8")
+                _log(f"[cycle {cycle_index:03d}] reusing existing prompt from interrupted cycle")
+            else:
+                _write_dynamic_files(
+                    workspace=workspace,
+                    run_root=run_root,
+                    summary=summary,
+                    cycle_index=cycle_index,
+                    goal_qps=args.goal_qps,
+                )
+                prompt = _build_cycle_prompt(
+                    workspace=workspace,
+                    run_root=run_root,
+                    goal_qps=args.goal_qps,
+                    cycle_index=cycle_index,
+                )
+                prompt_path.write_text(prompt, encoding="utf-8")
 
             output_path = outputs_root / f"cycle_{cycle_index:03d}_last_message.txt"
             events_path = outputs_root / f"cycle_{cycle_index:03d}_events.jsonl"
