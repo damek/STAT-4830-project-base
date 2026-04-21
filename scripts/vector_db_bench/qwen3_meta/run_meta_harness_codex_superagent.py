@@ -41,9 +41,9 @@ DEFAULT_BLANK_SEED_SOURCE = DEFAULT_BENCH_REPO / "skeleton"
 DEFAULT_DATA_DIR = DEFAULT_BENCH_REPO / "data"
 DEFAULT_BOOTSTRAP_DIR = SCRIPT_PATH.with_name("meta_harness_codex_superagent") / "bootstrap"
 DEFAULT_CPU_CORES = "0-3"
-DEFAULT_GOAL_QPS = 4000.0
+DEFAULT_GOAL_QPS = 22000.0
 DEFAULT_CYCLES = 40
-DEFAULT_CYCLE_TIMEOUT_SECONDS = 60 * 30
+DEFAULT_CYCLE_TIMEOUT_SECONDS = 0
 DEFAULT_QUICK_BENCH_QUERIES = 1000
 DEFAULT_FULL_BENCH_THRESHOLD_RATIO = 0.97
 DEFAULT_AUTO_RESTORE_INVALID_CYCLES = 2
@@ -97,6 +97,7 @@ class CodexExecResult:
     stderr: str
     last_message: str
     runtime_seconds: float
+    timed_out: bool
 
 
 @dataclass(frozen=True)
@@ -134,7 +135,12 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument("--codex-executable", type=str, default="codex")
-    parser.add_argument("--codex-timeout-seconds", type=int, default=DEFAULT_CYCLE_TIMEOUT_SECONDS)
+    parser.add_argument(
+        "--codex-timeout-seconds",
+        type=int,
+        default=DEFAULT_CYCLE_TIMEOUT_SECONDS,
+        help="Wall-clock timeout for a Codex burst. Use 0 to disable the timeout.",
+    )
     parser.add_argument(
         "--codex-sandbox",
         choices=("read-only", "workspace-write", "danger-full-access"),
@@ -195,23 +201,41 @@ def _run_codex_exec(
     argv.append("-")
 
     started_at = time.time()
-    proc = subprocess.run(
-        argv,
-        input=prompt,
-        text=True,
-        capture_output=True,
-        cwd=cwd,
-        timeout=timeout_seconds,
-    )
-    events_path.write_text(proc.stdout, encoding="utf-8")
+    timeout = timeout_seconds if timeout_seconds and timeout_seconds > 0 else None
+    try:
+        proc = subprocess.run(
+            argv,
+            input=prompt,
+            text=True,
+            capture_output=True,
+            cwd=cwd,
+            timeout=timeout,
+        )
+        stdout = proc.stdout
+        stderr = proc.stderr
+        returncode = proc.returncode
+        timed_out = False
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout or ""
+        stderr = exc.stderr or ""
+        timeout_note = (
+            f"Codex burst timed out after {timeout_seconds} seconds. "
+            "Treat this as a failed cycle and continue."
+        )
+        stderr = f"{stderr}\n{timeout_note}".strip()
+        returncode = 124
+        timed_out = True
+
+    events_path.write_text(stdout, encoding="utf-8")
     last_message = output_path.read_text(encoding="utf-8") if output_path.exists() else ""
     return CodexExecResult(
         argv=argv,
-        returncode=proc.returncode,
-        stdout=proc.stdout,
-        stderr=proc.stderr,
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
         last_message=last_message,
         runtime_seconds=time.time() - started_at,
+        timed_out=timed_out,
     )
 
 
@@ -281,6 +305,11 @@ def _current_milestone(best_qps: float) -> tuple[str, float | None]:
         (2000.0, "qps_2000"),
         (3000.0, "qps_3000"),
         (4000.0, "qps_4000"),
+        (8000.0, "qps_8000"),
+        (12000.0, "qps_12000"),
+        (16000.0, "qps_16000"),
+        (20000.0, "qps_20000"),
+        (22000.0, "qps_22000"),
     ]
     current = ladder[0][1]
     next_target = None
@@ -466,6 +495,11 @@ def _write_dynamic_files(*, workspace: Path, run_root: Path, summary: dict[str, 
         "- qps_2000",
         "- qps_3000",
         "- qps_4000",
+        "- qps_8000",
+        "- qps_12000",
+        "- qps_16000",
+        "- qps_20000",
+        "- qps_22000",
     ]
     (meta_dir / "milestones.md").write_text("\n".join(milestone_lines) + "\n", encoding="utf-8")
 
@@ -781,6 +815,7 @@ def main() -> int:
                     "runtime_seconds": codex_result.runtime_seconds,
                     "stderr": codex_result.stderr,
                     "last_message": codex_result.last_message,
+                    "timed_out": codex_result.timed_out,
                     "events_path": str(events_path),
                 },
             )
@@ -834,6 +869,7 @@ def main() -> int:
                     "last_cycle": cycle_index,
                     "last_codex_returncode": codex_result.returncode,
                     "last_codex_runtime_seconds": round(codex_result.runtime_seconds, 2),
+                    "last_codex_timed_out": codex_result.timed_out,
                     "last_evaluation": {
                         "build_success": evaluation.build_success,
                         "build_error": evaluation.build_error,
@@ -854,6 +890,7 @@ def main() -> int:
                 "auto_restored_before_cycle": auto_restored,
                 "codex_returncode": codex_result.returncode,
                 "codex_runtime_seconds": codex_result.runtime_seconds,
+                "codex_timed_out": codex_result.timed_out,
                 "codex_last_message": codex_result.last_message,
                 "evaluation": {
                     "build_success": evaluation.build_success,

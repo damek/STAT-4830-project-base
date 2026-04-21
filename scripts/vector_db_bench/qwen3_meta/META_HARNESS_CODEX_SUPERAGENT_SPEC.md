@@ -2,7 +2,7 @@
 
 ## Objective
 - Build a continuously running Codex-driven optimization campaign for vector-db-bench.
-- Target a valid **`4000+ QPS`** solution with recall at or above the official threshold.
+- Target a valid **`22000+ QPS`** solution with recall at or above the official threshold.
 - Use the same official benchmark scaffold, dataset, recall rule, and CPU pinning policy.
 - Remove the dependency on Qwen/OpenRouter and let Codex act as the full research-and-implementation agent.
 
@@ -90,13 +90,13 @@ Track at least these state objects:
 There is no artificial tool-call budget inside a Codex burst.
 
 Instead, use:
-- a wall-clock timeout per burst
+- no wall-clock timeout on the Codex burst itself
 - evaluation after each burst
 - optional auto-restore after repeated invalid cycles
 
 Recommended initial operating point:
 - `20-40` cycles
-- `20-30` minutes per cycle
+- unbounded Codex burst time, with external benchmark/build/server safeguards still allowed
 - stop early if goal is reached
 
 ## Workspace Layout
@@ -168,7 +168,7 @@ Research remains optional, but available.
 
 ## Success Criterion
 Primary success criterion:
-- achieve **`>= 4000 QPS`** with valid recall
+- achieve **`>= 22000 QPS`** with valid recall
 
 Secondary success criteria:
 - produce a visible staircase of progress across cycles
