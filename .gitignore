@@ -1,0 +1,6 @@
+# Ignore everything in figures directory except PNGs and TEX files
+docs/figures/*
+!docs/figures/*.png
+!docs/figures/*.tex
+
+local/
